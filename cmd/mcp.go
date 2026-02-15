@@ -57,6 +57,7 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 
 	// Start HTTP server in background
 	go func() {
+		PrintBanner(os.Stderr)
 		fmt.Fprintf(os.Stderr, "zkettle HTTP server on port %d\n", *port)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)

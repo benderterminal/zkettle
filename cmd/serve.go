@@ -63,6 +63,7 @@ func runServe(host string, port int, dataDir, baseURL string, webFS embed.FS) er
 
 	errCh := make(chan error, 1)
 	go func() {
+		PrintBanner(os.Stderr)
 		fmt.Fprintf(os.Stderr, "zkettle serving on %s:%d\n", host, port)
 		errCh <- httpSrv.ListenAndServe()
 	}()

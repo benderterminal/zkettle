@@ -48,6 +48,7 @@ func main() {
 }
 
 func printUsage() {
+	cmd.PrintBannerFull(os.Stderr)
 	fmt.Fprintln(os.Stderr, `Usage: zkettle <command> [options]
 
 Commands:
