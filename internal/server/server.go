@@ -53,7 +53,7 @@ func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -66,8 +66,9 @@ type createRequest struct {
 }
 
 type createResponse struct {
-	ID        string `json:"id"`
-	ExpiresAt string `json:"expires_at"`
+	ID          string `json:"id"`
+	ExpiresAt   string `json:"expires_at"`
+	DeleteToken string `json:"delete_token"`
 }
 
 type getResponse struct {
@@ -129,9 +130,10 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := generateID()
+	deleteToken := generateID()
 	expiresAt := time.Now().Add(time.Duration(req.Hours) * time.Hour)
 
-	if err := s.store.Create(id, encBytes, ivBytes, req.Views, expiresAt); err != nil {
+	if err := s.store.Create(id, encBytes, ivBytes, req.Views, expiresAt, deleteToken); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to store secret")
 		return
 	}
@@ -139,8 +141,9 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(createResponse{
-		ID:        id,
-		ExpiresAt: expiresAt.UTC().Format(time.RFC3339),
+		ID:          id,
+		ExpiresAt:   expiresAt.UTC().Format(time.RFC3339),
+		DeleteToken: deleteToken,
 	})
 }
 
@@ -165,7 +168,25 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.store.Delete(id); err != nil {
+
+	token := ""
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		token = strings.TrimPrefix(auth, "Bearer ")
+	}
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "Authorization header with Bearer token required")
+		return
+	}
+
+	if err := s.store.Delete(id, token); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "secret not found")
+			return
+		}
+		if errors.Is(err, store.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "invalid delete token")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to delete secret")
 		return
 	}
@@ -188,12 +209,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	err := s.store.Status(id)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrExpired) {
 			writeError(w, http.StatusNotFound, "secret not found")
-			return
-		}
-		if errors.Is(err, store.ErrExpired) {
-			writeError(w, http.StatusGone, "secret expired or consumed")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to check secret status")
@@ -226,6 +243,8 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 
 func generateID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand: " + err.Error())
+	}
 	return strings.TrimRight(hex.EncodeToString(b), "=")
 }

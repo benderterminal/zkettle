@@ -51,7 +51,8 @@ func New(dbPath string) (*Store, error) {
 		iv BLOB NOT NULL,
 		views_left INTEGER NOT NULL,
 		expires_at INTEGER NOT NULL,
-		created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+		delete_token TEXT NOT NULL DEFAULT ''
 	)`)
 	if err != nil {
 		db.Close()
@@ -83,10 +84,10 @@ func New(dbPath string) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time) error {
+func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time, deleteToken string) error {
 	_, err := s.db.Exec(
-		`INSERT INTO secrets (id, encrypted, iv, views_left, expires_at) VALUES (?, ?, ?, ?, ?)`,
-		id, encrypted, iv, viewsLeft, expiresAt.Unix(),
+		`INSERT INTO secrets (id, encrypted, iv, views_left, expires_at, delete_token) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, encrypted, iv, viewsLeft, expiresAt.Unix(), deleteToken,
 	)
 	return err
 }
@@ -112,9 +113,24 @@ func (s *Store) Get(id string) (encrypted, iv []byte, err error) {
 	return encrypted, iv, nil
 }
 
-func (s *Store) Delete(id string) error {
-	_, err := s.db.Exec(`DELETE FROM secrets WHERE id = ?`, id)
-	return err
+var ErrForbidden = errors.New("invalid delete token")
+
+func (s *Store) Delete(id string, deleteToken string) error {
+	res, err := s.db.Exec(`DELETE FROM secrets WHERE id = ? AND delete_token = ?`, id, deleteToken)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		// Check if the secret exists at all to distinguish not-found from wrong token
+		var exists int
+		err := s.db.QueryRow(`SELECT 1 FROM secrets WHERE id = ?`, id).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return ErrForbidden
+	}
+	return nil
 }
 
 func (s *Store) List() ([]SecretMeta, error) {

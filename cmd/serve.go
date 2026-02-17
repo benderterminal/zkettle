@@ -40,6 +40,13 @@ func RunServe(args []string, webFS embed.FS) error {
 		}
 	}
 
+	for _, o := range origins {
+		if o == "*" {
+			fmt.Fprintln(os.Stderr, "WARNING: CORS origin '*' allows any website to make cross-origin requests, disabling implicit CSRF protection")
+			break
+		}
+	}
+
 	return runServe(*host, *port, *dataDir, *baseURL, origins, webFS)
 }
 

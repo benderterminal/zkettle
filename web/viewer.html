@@ -333,7 +333,8 @@ button.primary:disabled{
     async function checkAvailability() {
         try {
             var path = window.location.pathname;
-            var id = path.split('/s/')[1];
+            var match = path.match(/\/s\/([^\/]+)/);
+            var id = match ? match[1] : null;
             if (!id) {
                 showError('Invalid secret URL.');
                 return;
@@ -378,7 +379,8 @@ button.primary:disabled{
             }
 
             var path = window.location.pathname;
-            var id = path.split('/s/')[1];
+            var match = path.match(/\/s\/([^\/]+)/);
+            var id = match ? match[1] : null;
             if (!id) {
                 showError('Invalid secret URL.');
                 return;
