@@ -11,6 +11,7 @@ import (
 )
 
 var ErrNotFound = errors.New("secret not found")
+var ErrExpired = errors.New("secret expired or consumed")
 
 type SecretMeta struct {
 	ID        string
@@ -137,6 +138,25 @@ func (s *Store) List() ([]SecretMeta, error) {
 		metas = append(metas, m)
 	}
 	return metas, rows.Err()
+}
+
+func (s *Store) Status(id string) error {
+	var viewsLeft int
+	var expiresAt int64
+	err := s.db.QueryRow(
+		`SELECT views_left, expires_at FROM secrets WHERE id = ?`,
+		id,
+	).Scan(&viewsLeft, &expiresAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if viewsLeft <= 0 || expiresAt <= time.Now().Unix() {
+		return ErrExpired
+	}
+	return nil
 }
 
 func (s *Store) Cleanup() (int, error) {

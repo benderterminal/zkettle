@@ -1,5 +1,6 @@
 PLAN.md
 SUMMARY.md
+plans/
 dist/
 *.db
 *.db-wal

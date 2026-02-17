@@ -3,98 +3,494 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:">
 <title>zKettle - Secret Viewer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='30' y='45' width='40' height='35' rx='4' fill='none' stroke='%2300ff41' stroke-width='6'/%3E%3Cpath d='M50 20a15 15 0 0 0-15 15v10h30V35a15 15 0 0 0-15-15z' fill='none' stroke='%2300ff41' stroke-width='6'/%3E%3Ccircle cx='50' cy='60' r='5' fill='%2300ff41'/%3E%3C/svg%3E">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f0f0f;color:#e0e0e0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1rem}
-.container{max-width:540px;width:100%;text-align:center}
-h1{font-size:1.4rem;margin-bottom:.5rem;color:#fff}
-p.sub{font-size:.85rem;color:#888;margin-bottom:2rem}
-.card{background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:2rem;margin-bottom:1rem}
-button{background:#2563eb;color:#fff;border:none;border-radius:6px;padding:.7rem 1.6rem;font-size:.95rem;cursor:pointer;transition:background .15s}
-button:hover{background:#1d4ed8}
-button:disabled{background:#333;cursor:not-allowed}
-.secret-display{background:#111;border:1px solid #333;border-radius:6px;padding:1rem;margin:1rem 0;text-align:left;word-break:break-all;white-space:pre-wrap;font-family:monospace;font-size:.9rem;max-height:400px;overflow-y:auto}
-.error{color:#ef4444}
-.success{color:#22c55e;font-size:.85rem;margin-top:.5rem}
-.actions{display:flex;gap:.5rem;justify-content:center;margin-top:1rem}
+
+body{
+    font-family:'JetBrains Mono','Fira Code','SF Mono','Cascadia Code',monospace;
+    background:#0a0a0a;
+    color:#b0b0b0;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:1rem;
+}
+
+.container{
+    max-width:640px;
+    width:100%;
+    text-align:center;
+}
+
+.banner{
+    margin-bottom:1rem;
+}
+
+.banner a{
+    text-decoration:none;
+    color:#00ff41;
+    display:inline-block;
+}
+
+.banner pre{
+    font-family:inherit;
+    font-size:.7rem;
+    line-height:1.15;
+    color:#00ff41;
+    display:inline-block;
+    text-align:left;
+}
+
+.page-title{
+    font-size:1.1rem;
+    color:#b0b0b0;
+    margin-bottom:1.5rem;
+    font-weight:400;
+    letter-spacing:.05em;
+}
+
+.card{
+    background:#111111;
+    border:1px solid #222;
+    border-radius:8px;
+    padding:2rem;
+}
+
+/* Loading spinner */
+.spinner-wrap{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:1rem;
+    padding:1rem 0;
+}
+
+.spinner{
+    width:28px;
+    height:28px;
+    border:2px solid #222;
+    border-top-color:#00ff41;
+    border-radius:50%;
+    animation:spin .8s linear infinite;
+}
+
+@keyframes spin{
+    to{transform:rotate(360deg)}
+}
+
+.spinner-text{
+    font-size:.85rem;
+    color:#666;
+}
+
+.spinner-text::after{
+    content:'';
+    animation:dots 1.5s steps(4,end) infinite;
+}
+
+@keyframes dots{
+    0%{content:''}
+    25%{content:'.'}
+    50%{content:'..'}
+    75%{content:'...'}
+}
+
+/* Buttons */
+button{
+    font-family:inherit;
+    background:transparent;
+    color:#00ff41;
+    border:1px solid #00ff41;
+    border-radius:4px;
+    padding:.6rem 1.4rem;
+    font-size:.85rem;
+    cursor:pointer;
+    transition:all .15s;
+}
+
+button:hover{
+    background:#00ff41;
+    color:#0a0a0a;
+}
+
+button:disabled{
+    border-color:#333;
+    color:#555;
+    background:transparent;
+    cursor:not-allowed;
+}
+
+button.primary{
+    background:#00ff41;
+    color:#0a0a0a;
+    font-weight:600;
+}
+
+button.primary:hover{
+    background:#00cc33;
+    border-color:#00cc33;
+}
+
+button.primary:disabled{
+    background:#333;
+    border-color:#333;
+    color:#555;
+}
+
+/* Secret display */
+.secret-display{
+    background:#0a0a0a;
+    border:1px solid #222;
+    border-radius:4px;
+    padding:1rem;
+    margin:1rem 0;
+    text-align:left;
+    word-break:break-all;
+    white-space:pre-wrap;
+    font-family:inherit;
+    font-size:.85rem;
+    max-height:400px;
+    overflow-y:auto;
+    color:#e0e0e0;
+}
+
+/* Warning text */
+.warning{
+    color:#888;
+    font-size:.8rem;
+    margin-bottom:1.5rem;
+    line-height:1.5;
+}
+
+/* Error message */
+.error-msg{
+    color:#ef4444;
+    font-size:.85rem;
+    line-height:1.5;
+}
+
+/* Gone message */
+.gone-msg{
+    color:#666;
+    font-size:.85rem;
+    line-height:1.5;
+}
+
+/* Actions row */
+.actions{
+    display:flex;
+    gap:.5rem;
+    align-items:center;
+    justify-content:center;
+    margin-top:1rem;
+    flex-wrap:wrap;
+}
+
+/* Clipboard indicator */
+.clipboard-status{
+    font-size:.75rem;
+    color:#666;
+    margin-top:.75rem;
+    min-height:1.2em;
+}
+
+.clipboard-status.active{
+    color:#00ff41;
+}
+
+.clipboard-status.cleared{
+    color:#888;
+}
+
+/* Keep checkbox */
+.keep-wrap{
+    display:flex;
+    align-items:center;
+    gap:.4rem;
+    margin-top:.75rem;
+    justify-content:center;
+}
+
+.keep-wrap label{
+    font-size:.75rem;
+    color:#666;
+    cursor:pointer;
+    user-select:none;
+}
+
+.keep-wrap input[type="checkbox"]{
+    accent-color:#00ff41;
+    cursor:pointer;
+}
+
+/* State visibility */
+.state{display:none}
+.state.active{display:block}
+
+/* Responsive */
+@media(max-width:480px){
+    .card{padding:1.5rem 1rem}
+    .banner pre{font-size:.55rem}
+}
 </style>
 </head>
 <body>
 <div class="container">
-<h1>zKettle</h1>
-<p class="sub">Zero-knowledge expiring secret</p>
-<div class="card" id="card">
-<div id="reveal-view">
-<p style="margin-bottom:1.5rem;color:#aaa">This secret will be consumed when revealed.</p>
-<button id="reveal-btn" onclick="revealSecret()">Reveal Secret</button>
+    <div class="banner">
+        <a href="/">
+<pre>
+         ) )
+        ( (
+     _  ~)~
+ ___| |/ /
+|_  / ' /
+ / /| . \
+/___|_|\_\
+</pre>
+        </a>
+    </div>
+    <div class="page-title">secret viewer</div>
+    <div class="card">
+        <!-- Loading state -->
+        <div class="state active" id="state-loading">
+            <div class="spinner-wrap">
+                <div class="spinner"></div>
+                <div class="spinner-text">checking availability</div>
+            </div>
+        </div>
+
+        <!-- Available state -->
+        <div class="state" id="state-available">
+            <p class="warning">This secret will be consumed when revealed.</p>
+            <button class="primary" id="reveal-btn" onclick="revealSecret()">Reveal Secret</button>
+        </div>
+
+        <!-- Revealed state -->
+        <div class="state" id="state-revealed">
+            <div class="secret-display" id="plaintext"></div>
+            <div class="actions">
+                <button id="copy-btn" onclick="copySecret()">Copy</button>
+            </div>
+            <div class="clipboard-status" id="clipboard-status"></div>
+            <div class="keep-wrap">
+                <input type="checkbox" id="keep-clipboard">
+                <label for="keep-clipboard">Keep in clipboard</label>
+            </div>
+        </div>
+
+        <!-- Error state -->
+        <div class="state" id="state-error">
+            <p class="error-msg" id="error-msg"></p>
+        </div>
+
+        <!-- Gone state -->
+        <div class="state" id="state-gone">
+            <p class="gone-msg">This secret has expired or has already been viewed.</p>
+        </div>
+    </div>
 </div>
-<div id="secret-view" style="display:none">
-<div class="secret-display" id="plaintext"></div>
-<div class="actions">
-<button onclick="copySecret()">Copy</button>
-</div>
-<div class="success" id="copy-msg" style="display:none">Copied to clipboard</div>
-</div>
-<div id="error-view" style="display:none">
-<p class="error" id="error-msg"></p>
-</div>
-</div>
-</div>
+
+<noscript>
+    <style>.container{display:none}</style>
+    <div style="font-family:monospace;color:#b0b0b0;text-align:center;padding:3rem 1rem;">
+        JavaScript is required to view secrets.
+    </div>
+</noscript>
+
 <script>
-function b64urlDecode(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';const bin=atob(s);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return bytes}
+(function(){
+    'use strict';
 
-function showError(msg){
-document.getElementById('reveal-view').style.display='none';
-document.getElementById('secret-view').style.display='none';
-document.getElementById('error-view').style.display='block';
-document.getElementById('error-msg').textContent=msg;
-}
+    var clipboardTimer = null;
+    var clipboardCountdown = null;
 
-async function revealSecret(){
-const btn=document.getElementById('reveal-btn');
-btn.disabled=true;
-btn.textContent='Decrypting...';
+    function b64urlDecode(s) {
+        s = s.replace(/-/g, '+').replace(/_/g, '/');
+        while (s.length % 4) s += '=';
+        var bin = atob(s);
+        var bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
+    }
 
-try{
-const hash=window.location.hash.slice(1);
-if(!hash){showError('No decryption key found in URL.');return}
-const path=window.location.pathname;
-const id=path.split('/s/')[1];
-if(!id){showError('Invalid secret URL.');return}
+    function showState(name) {
+        var states = document.querySelectorAll('.state');
+        for (var i = 0; i < states.length; i++) {
+            states[i].classList.remove('active');
+        }
+        document.getElementById('state-' + name).classList.add('active');
+    }
 
-const resp=await fetch('/api/secrets/'+encodeURIComponent(id));
-if(!resp.ok){
-if(resp.status===404){showError('This secret has expired or has already been viewed.');return}
-showError('Failed to retrieve secret (HTTP '+resp.status+').');return
-}
-const data=await resp.json();
-const encrypted=b64urlDecode(data.encrypted);
-const iv=b64urlDecode(data.iv);
-const key=b64urlDecode(hash);
+    function showError(msg) {
+        document.getElementById('error-msg').textContent = msg;
+        showState('error');
+    }
 
-const cryptoKey=await crypto.subtle.importKey('raw',key,{name:'AES-GCM'},false,['decrypt']);
-const decrypted=await crypto.subtle.decrypt({name:'AES-GCM',iv:iv},cryptoKey,encrypted);
-const plaintext=new TextDecoder().decode(decrypted);
+    async function checkAvailability() {
+        try {
+            var path = window.location.pathname;
+            var id = path.split('/s/')[1];
+            if (!id) {
+                showError('Invalid secret URL.');
+                return;
+            }
 
-document.getElementById('reveal-view').style.display='none';
-document.getElementById('plaintext').textContent=plaintext;
-document.getElementById('secret-view').style.display='block';
-}catch(e){
-showError('Decryption failed: '+e.message);
-}
-}
+            var hash = window.location.hash.slice(1);
+            if (!hash) {
+                showError('No decryption key found in URL.');
+                return;
+            }
 
-async function copySecret(){
-const text=document.getElementById('plaintext').textContent;
-try{
-await navigator.clipboard.writeText(text);
-const msg=document.getElementById('copy-msg');
-msg.style.display='block';
-setTimeout(()=>msg.style.display='none',2000);
-}catch(e){/* clipboard API may fail in some contexts */}
-}
+            var statusResp = await fetch('/api/secrets/' + encodeURIComponent(id) + '/status');
+            if (statusResp.status === 404 || statusResp.status === 410) {
+                showState('gone');
+                return;
+            }
+            if (!statusResp.ok) {
+                showError('Failed to check secret status (HTTP ' + statusResp.status + ').');
+                return;
+            }
+
+            showState('available');
+        } catch (e) {
+            showError('Network error: could not reach server.');
+        }
+    }
+
+    async function revealSecret() {
+        var btn = document.getElementById('reveal-btn');
+        btn.disabled = true;
+        btn.textContent = 'Decrypting...';
+
+        // Brief spinner overlay
+        showState('loading');
+        document.querySelector('#state-loading .spinner-text').textContent = 'decrypting';
+
+        try {
+            var hash = window.location.hash.slice(1);
+            if (!hash) {
+                showError('No decryption key found in URL.');
+                return;
+            }
+
+            var path = window.location.pathname;
+            var id = path.split('/s/')[1];
+            if (!id) {
+                showError('Invalid secret URL.');
+                return;
+            }
+
+            var resp = await fetch('/api/secrets/' + encodeURIComponent(id));
+            if (!resp.ok) {
+                if (resp.status === 404 || resp.status === 410) {
+                    showState('gone');
+                    return;
+                }
+                showError('Failed to retrieve secret (HTTP ' + resp.status + ').');
+                return;
+            }
+
+            var data = await resp.json();
+            var encrypted = b64urlDecode(data.encrypted);
+            var iv = b64urlDecode(data.iv);
+            var key = b64urlDecode(hash);
+
+            var cryptoKey = await crypto.subtle.importKey(
+                'raw', key, { name: 'AES-GCM' }, false, ['decrypt']
+            );
+            var decrypted = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: iv }, cryptoKey, encrypted
+            );
+            var plaintext = new TextDecoder().decode(decrypted);
+
+            document.getElementById('plaintext').textContent = plaintext;
+            showState('revealed');
+        } catch (e) {
+            showError('Decryption failed: ' + e.message);
+        }
+    }
+
+    async function copySecret() {
+        var text = document.getElementById('plaintext').textContent;
+        var statusEl = document.getElementById('clipboard-status');
+
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch (e) {
+            statusEl.textContent = 'Clipboard access denied.';
+            statusEl.className = 'clipboard-status';
+            return;
+        }
+
+        // Clear any existing timer
+        if (clipboardTimer) {
+            clearTimeout(clipboardTimer);
+            clipboardTimer = null;
+        }
+        if (clipboardCountdown) {
+            clearInterval(clipboardCountdown);
+            clipboardCountdown = null;
+        }
+
+        var secondsLeft = 60;
+        statusEl.textContent = 'Clipboard clears in ' + secondsLeft + 's';
+        statusEl.className = 'clipboard-status active';
+
+        clipboardCountdown = setInterval(function() {
+            secondsLeft--;
+
+            // Check if user toggled "keep" during countdown
+            if (document.getElementById('keep-clipboard').checked) {
+                clearInterval(clipboardCountdown);
+                clipboardCountdown = null;
+                if (clipboardTimer) {
+                    clearTimeout(clipboardTimer);
+                    clipboardTimer = null;
+                }
+                statusEl.textContent = 'Clipboard will not be cleared.';
+                statusEl.className = 'clipboard-status';
+                return;
+            }
+
+            if (secondsLeft > 0) {
+                statusEl.textContent = 'Clipboard clears in ' + secondsLeft + 's';
+            }
+        }, 1000);
+
+        clipboardTimer = setTimeout(async function() {
+            if (clipboardCountdown) {
+                clearInterval(clipboardCountdown);
+                clipboardCountdown = null;
+            }
+
+            if (document.getElementById('keep-clipboard').checked) {
+                statusEl.textContent = 'Clipboard will not be cleared.';
+                statusEl.className = 'clipboard-status';
+                return;
+            }
+
+            try {
+                await navigator.clipboard.writeText('');
+                statusEl.textContent = 'Clipboard cleared.';
+                statusEl.className = 'clipboard-status cleared';
+            } catch (e) {
+                statusEl.textContent = 'Could not clear clipboard.';
+                statusEl.className = 'clipboard-status';
+            }
+        }, 60000);
+    }
+
+    // Expose functions to onclick handlers
+    window.revealSecret = revealSecret;
+    window.copySecret = copySecret;
+
+    // Run pre-check on load
+    checkAvailability();
+})();
 </script>
 </body>
 </html>

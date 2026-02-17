@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/taw/zkettle/internal/server"
@@ -16,12 +17,13 @@ import (
 )
 
 func RunServe(args []string, webFS embed.FS) error {
-	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	port := fs.Int("port", 3000, "HTTP port")
-	host := fs.String("host", "0.0.0.0", "HTTP host")
-	dataDir := fs.String("data", "./data", "Data directory")
-	baseURL := fs.String("base-url", "", "Base URL for generated links")
-	if err := fs.Parse(args); err != nil {
+	f := flag.NewFlagSet("serve", flag.ExitOnError)
+	port := f.Int("port", 3000, "HTTP port")
+	host := f.String("host", "0.0.0.0", "HTTP host")
+	dataDir := f.String("data", "./data", "Data directory")
+	baseURL := f.String("base-url", "", "Base URL for generated links")
+	corsOrigins := f.String("cors-origins", "", "Comma-separated list of allowed CORS origins")
+	if err := f.Parse(args); err != nil {
 		return err
 	}
 
@@ -29,10 +31,19 @@ func RunServe(args []string, webFS embed.FS) error {
 		*baseURL = fmt.Sprintf("http://localhost:%d", *port)
 	}
 
-	return runServe(*host, *port, *dataDir, *baseURL, webFS)
+	var origins []string
+	if *corsOrigins != "" {
+		for _, o := range strings.Split(*corsOrigins, ",") {
+			if trimmed := strings.TrimSpace(o); trimmed != "" {
+				origins = append(origins, trimmed)
+			}
+		}
+	}
+
+	return runServe(*host, *port, *dataDir, *baseURL, origins, webFS)
 }
 
-func runServe(host string, port int, dataDir, baseURL string, webFS embed.FS) error {
+func runServe(host string, port int, dataDir, baseURL string, corsOrigins []string, webFS embed.FS) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("creating data directory: %w", err)
 	}
@@ -43,15 +54,15 @@ func runServe(host string, port int, dataDir, baseURL string, webFS embed.FS) er
 		return fmt.Errorf("opening store: %w", err)
 	}
 
-	viewerFS, err := fs.Sub(webFS, "web")
+	subFS, err := fs.Sub(webFS, "web")
 	if err != nil {
-		return fmt.Errorf("creating viewer fs: %w", err)
+		return fmt.Errorf("creating web fs: %w", err)
 	}
 
 	cfg := server.Config{BaseURL: baseURL}
-	srv := server.New(cfg, st, viewerFS)
+	srv := server.New(cfg, st, subFS)
 
-	handler := server.RateLimiter(60, 60)(srv.Handler())
+	handler := server.CORSMiddleware(corsOrigins)(server.RateLimiter(60, 60)(srv.Handler()))
 
 	httpSrv := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", host, port),

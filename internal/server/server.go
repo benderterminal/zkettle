@@ -21,21 +21,24 @@ type Config struct {
 }
 
 type Server struct {
-	cfg      Config
-	store    *store.Store
-	viewerFS fs.FS
-	mux      *http.ServeMux
+	cfg   Config
+	store *store.Store
+	webFS fs.FS
+	mux   *http.ServeMux
 }
 
-func New(cfg Config, st *store.Store, viewerFS fs.FS) *Server {
+func New(cfg Config, st *store.Store, webFS fs.FS) *Server {
 	s := &Server{
-		cfg:      cfg,
-		store:    st,
-		viewerFS: viewerFS,
-		mux:      http.NewServeMux(),
+		cfg:   cfg,
+		store: st,
+		webFS: webFS,
+		mux:   http.NewServeMux(),
 	}
+	s.mux.HandleFunc("GET /{$}", s.handleLanding)
+	s.mux.HandleFunc("GET /create", s.handleCreatePage)
 	s.mux.HandleFunc("POST /api/secrets", s.handleCreate)
 	s.mux.HandleFunc("GET /api/secrets/{id}", s.handleGet)
+	s.mux.HandleFunc("GET /api/secrets/{id}/status", s.handleStatus)
 	s.mux.HandleFunc("DELETE /api/secrets/{id}", s.handleDelete)
 	s.mux.HandleFunc("GET /s/{id}", s.handleViewer)
 	s.mux.HandleFunc("GET /health", s.handleHealth)
@@ -169,10 +172,41 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleLanding(w http.ResponseWriter, r *http.Request) {
+	s.servePage(w, "index.html")
+}
+
+func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
+	s.servePage(w, "create.html")
+}
+
 func (s *Server) handleViewer(w http.ResponseWriter, r *http.Request) {
-	data, err := fs.ReadFile(s.viewerFS, "viewer.html")
+	s.servePage(w, "viewer.html")
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := s.store.Status(id)
 	if err != nil {
-		http.Error(w, "viewer not found", http.StatusInternalServerError)
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "secret not found")
+			return
+		}
+		if errors.Is(err, store.ErrExpired) {
+			writeError(w, http.StatusGone, "secret expired or consumed")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to check secret status")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"available"}`))
+}
+
+func (s *Server) servePage(w http.ResponseWriter, name string) {
+	data, err := fs.ReadFile(s.webFS, name)
+	if err != nil {
+		http.Error(w, "page not found", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
