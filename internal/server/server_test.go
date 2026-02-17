@@ -58,7 +58,7 @@ func TestPostCreateSecret(t *testing.T) {
 
 func TestGetSecret(t *testing.T) {
 	srv, st := newTestServer(t)
-	st.Create("get-1", []byte("encrypted"), []byte("123456789012"), 1, time.Now().Add(1*time.Hour))
+	st.Create("get-1", []byte("encrypted"), []byte("123456789012"), 1, time.Now().Add(1*time.Hour), "tok")
 
 	req := httptest.NewRequest("GET", "/api/secrets/get-1", nil)
 	w := httptest.NewRecorder()
@@ -81,7 +81,7 @@ func TestGetSecret(t *testing.T) {
 
 func TestSecondGetSingleViewReturns404(t *testing.T) {
 	srv, st := newTestServer(t)
-	st.Create("sv-1", []byte("encrypted"), []byte("123456789012"), 1, time.Now().Add(1*time.Hour))
+	st.Create("sv-1", []byte("encrypted"), []byte("123456789012"), 1, time.Now().Add(1*time.Hour), "tok")
 
 	// First GET
 	req := httptest.NewRequest("GET", "/api/secrets/sv-1", nil)
@@ -112,13 +112,32 @@ func TestGetNonexistentReturns404(t *testing.T) {
 
 func TestDeleteReturns204(t *testing.T) {
 	srv, st := newTestServer(t)
-	st.Create("del-1", []byte("encrypted"), []byte("123456789012"), 1, time.Now().Add(1*time.Hour))
+	st.Create("del-1", []byte("encrypted"), []byte("123456789012"), 1, time.Now().Add(1*time.Hour), "del-tok")
 
+	// Without token should fail
 	req := httptest.NewRequest("DELETE", "/api/secrets/del-1", nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("DELETE without token: got %d, want 401", w.Code)
+	}
+
+	// With wrong token should fail
+	req = httptest.NewRequest("DELETE", "/api/secrets/del-1", nil)
+	req.Header.Set("Authorization", "Bearer wrong-tok")
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("DELETE with wrong token: got %d, want 403", w.Code)
+	}
+
+	// With correct token should succeed
+	req = httptest.NewRequest("DELETE", "/api/secrets/del-1", nil)
+	req.Header.Set("Authorization", "Bearer del-tok")
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
-		t.Fatalf("DELETE: got %d, want 204", w.Code)
+		t.Fatalf("DELETE with correct token: got %d, want 204", w.Code)
 	}
 }
 

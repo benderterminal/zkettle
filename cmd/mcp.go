@@ -40,14 +40,14 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 		return fmt.Errorf("opening store: %w", err)
 	}
 
-	viewerFS, err := fs.Sub(webFS, "web")
+	subFS, err := fs.Sub(webFS, "web")
 	if err != nil {
 		st.Close()
-		return fmt.Errorf("creating viewer fs: %w", err)
+		return fmt.Errorf("creating web fs: %w", err)
 	}
 
 	cfg := server.Config{BaseURL: *baseURL}
-	srv := server.New(cfg, st, viewerFS)
+	srv := server.New(cfg, st, subFS)
 	handler := server.RateLimiter(60, 60)(srv.Handler())
 
 	httpSrv := &http.Server{

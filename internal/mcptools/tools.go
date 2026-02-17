@@ -27,7 +27,8 @@ type ReadSecretInput struct {
 }
 
 type RevokeSecretInput struct {
-	ID string `json:"id" jsonschema:"the secret ID to revoke"`
+	ID          string `json:"id" jsonschema:"the secret ID to revoke"`
+	DeleteToken string `json:"delete_token" jsonschema:"the delete token returned when the secret was created"`
 }
 
 type ListSecretsInput struct{}
@@ -52,15 +53,17 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL string) {
 		}
 
 		id := generateID()
+		deleteToken := generateID()
 		expiresAt := time.Now().Add(time.Duration(hours) * time.Hour)
 
-		if err := st.Create(id, ciphertext, iv, views, expiresAt); err != nil {
+		if err := st.Create(id, ciphertext, iv, views, expiresAt, deleteToken); err != nil {
 			return nil, nil, fmt.Errorf("storing secret: %w", err)
 		}
 
 		secretURL := fmt.Sprintf("%s/s/%s#%s", baseURL, id, crypto.EncodeKey(key))
+		result := fmt.Sprintf("url: %s\ndelete_token: %s", secretURL, deleteToken)
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: secretURL}},
+			Content: []mcp.Content{&mcp.TextContent{Text: result}},
 		}, nil, nil
 	})
 
@@ -133,9 +136,12 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL string) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "revoke_secret",
-		Description: "Delete a secret by ID",
+		Description: "Delete a secret by ID (requires the delete_token from creation)",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args RevokeSecretInput) (*mcp.CallToolResult, any, error) {
-		if err := st.Delete(args.ID); err != nil {
+		if args.DeleteToken == "" {
+			return nil, nil, fmt.Errorf("delete_token is required")
+		}
+		if err := st.Delete(args.ID, args.DeleteToken); err != nil {
 			return nil, nil, fmt.Errorf("deleting secret: %w", err)
 		}
 		return &mcp.CallToolResult{
@@ -163,6 +169,8 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL string) {
 
 func generateID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand: " + err.Error())
+	}
 	return fmt.Sprintf("%x", b)
 }

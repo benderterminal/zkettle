@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:">
+<title>zKettle - Create Secret</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300ff41' stroke-width='2'><rect x='3' y='11' width='18' height='11' rx='2'/><path d='M7 11V7a5 5 0 0110 0v4'/></svg>">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:'JetBrains Mono','Fira Code','SF Mono','Cascadia Code',monospace;
+  background:#0a0a0a;
+  color:#b0b0b0;
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+  padding:2rem 1rem;
+}
+.container{max-width:640px;width:100%}
+a{color:#00ff41;text-decoration:none}
+a:hover{text-decoration:underline}
+.banner{color:#00ff41;font-size:.7rem;line-height:1.2;margin-bottom:1.5rem;text-align:center}
+.banner a{color:inherit;text-decoration:none}
+.banner a:hover{opacity:.8}
+h1{font-size:1.2rem;color:#e0e0e0;margin-bottom:1.5rem;font-weight:400}
+.card{
+  background:#111111;
+  border:1px solid #222;
+  border-radius:6px;
+  padding:1.5rem;
+}
+label{
+  display:block;
+  font-size:.8rem;
+  color:#777;
+  margin-bottom:.4rem;
+}
+textarea{
+  width:100%;
+  background:#0a0a0a;
+  border:1px solid #333;
+  border-radius:4px;
+  color:#e0e0e0;
+  font-family:inherit;
+  font-size:.85rem;
+  padding:.75rem;
+  resize:vertical;
+  min-height:6rem;
+  line-height:1.5;
+  transition:border-color .15s;
+}
+textarea:focus{
+  outline:none;
+  border-color:#00ff41;
+}
+textarea::placeholder{color:#555}
+.options{
+  display:flex;
+  gap:1rem;
+  margin-top:1rem;
+  flex-wrap:wrap;
+}
+.option{flex:1;min-width:140px}
+select{
+  width:100%;
+  background:#0a0a0a;
+  border:1px solid #333;
+  border-radius:4px;
+  color:#e0e0e0;
+  font-family:inherit;
+  font-size:.8rem;
+  padding:.5rem .75rem;
+  appearance:none;
+  -webkit-appearance:none;
+  cursor:pointer;
+  transition:border-color .15s;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23555' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right .6rem center;
+}
+select:focus{
+  outline:none;
+  border-color:#00ff41;
+}
+select option{
+  background:#111;
+  color:#e0e0e0;
+}
+.btn-primary{
+  display:block;
+  width:100%;
+  margin-top:1.25rem;
+  background:#00ff41;
+  color:#0a0a0a;
+  border:none;
+  border-radius:4px;
+  padding:.7rem 1.5rem;
+  font-family:inherit;
+  font-size:.9rem;
+  font-weight:600;
+  cursor:pointer;
+  transition:opacity .15s;
+}
+.btn-primary:hover{opacity:.85}
+.btn-primary:disabled{
+  opacity:.4;
+  cursor:not-allowed;
+}
+.error-msg{
+  margin-top:1rem;
+  padding:.75rem;
+  background:rgba(239,68,68,.1);
+  border:1px solid rgba(239,68,68,.3);
+  border-radius:4px;
+  color:#ef4444;
+  font-size:.8rem;
+  display:none;
+}
+/* Result section */
+.result{display:none}
+.result-label{
+  font-size:.8rem;
+  color:#777;
+  margin-bottom:.4rem;
+}
+.link-row{
+  display:flex;
+  gap:.5rem;
+  margin-bottom:.75rem;
+}
+.link-input{
+  flex:1;
+  background:#0a0a0a;
+  border:1px solid #333;
+  border-radius:4px;
+  color:#00ff41;
+  font-family:inherit;
+  font-size:.75rem;
+  padding:.6rem .75rem;
+  outline:none;
+}
+.btn-copy{
+  background:#222;
+  color:#00ff41;
+  border:1px solid #333;
+  border-radius:4px;
+  padding:.6rem 1rem;
+  font-family:inherit;
+  font-size:.8rem;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:background .15s;
+}
+.btn-copy:hover{background:#2a2a2a}
+.warning{
+  font-size:.75rem;
+  color:#888;
+  line-height:1.5;
+  margin-bottom:1rem;
+}
+.create-another{
+  display:inline-block;
+  margin-top:1rem;
+  font-size:.8rem;
+  color:#00ff41;
+  cursor:pointer;
+  background:none;
+  border:none;
+  font-family:inherit;
+  text-decoration:none;
+}
+.create-another:hover{text-decoration:underline}
+.copy-toast{
+  font-size:.75rem;
+  color:#00ff41;
+  margin-top:.25rem;
+  display:none;
+}
+noscript{
+  display:block;
+  text-align:center;
+  padding:2rem;
+  color:#ef4444;
+}
+</style>
+</head>
+<body>
+<div class="container">
+<pre class="banner"><a href="/">         ) )
+        ( (
+     _  ~)~
+ ___| |/ /
+|_  / ' /
+ / /| . \
+/___|_|\_\</a></pre>
+
+<h1>create a secret</h1>
+
+<div class="card" id="form-section">
+  <label for="secret-input">secret content</label>
+  <textarea id="secret-input" rows="4" placeholder="paste your secret here..." spellcheck="false"></textarea>
+
+  <div class="options">
+    <div class="option">
+      <label for="views-select">max views</label>
+      <select id="views-select">
+        <option value="1" selected>1</option>
+        <option value="5">5</option>
+        <option value="10">10</option>
+        <option value="100">100</option>
+      </select>
+    </div>
+    <div class="option">
+      <label for="ttl-select">expires after</label>
+      <select id="ttl-select">
+        <option value="1">1 hour</option>
+        <option value="24" selected>24 hours</option>
+        <option value="168">7 days</option>
+      </select>
+    </div>
+  </div>
+
+  <button class="btn-primary" id="encrypt-btn" onclick="createSecret()">Encrypt &amp; Share</button>
+  <div class="error-msg" id="error-msg"></div>
+</div>
+
+<div class="card result" id="result-section">
+  <p class="result-label">your secret link:</p>
+  <div class="link-row">
+    <input class="link-input" id="link-output" type="text" readonly>
+    <button class="btn-copy" id="copy-btn" onclick="copyLink()">Copy Link</button>
+  </div>
+  <p class="warning">This link contains the decryption key. Anyone with it can view the secret.</p>
+  <div class="copy-toast" id="copy-toast">Copied to clipboard</div>
+  <button class="create-another" onclick="resetForm()">Create Another</button>
+</div>
+
+<noscript>JavaScript is required to create secrets.</noscript>
+</div>
+
+<script>
+function b64urlEncode(buf){
+  var bytes=new Uint8Array(buf);
+  var binary='';
+  for(var i=0;i<bytes.length;i++) binary+=String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+function showError(msg){
+  var el=document.getElementById('error-msg');
+  el.textContent=msg;
+  el.style.display='block';
+}
+
+function hideError(){
+  document.getElementById('error-msg').style.display='none';
+}
+
+async function createSecret(){
+  hideError();
+
+  var secretText=document.getElementById('secret-input').value.trim();
+  if(!secretText){
+    showError('Please enter a secret.');
+    return;
+  }
+
+  var btn=document.getElementById('encrypt-btn');
+  btn.disabled=true;
+  btn.textContent='Encrypting...';
+
+  try{
+    // 1. Generate a random 256-bit key
+    var key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']);
+
+    // 2. Generate a random 12-byte IV
+    var iv=crypto.getRandomValues(new Uint8Array(12));
+
+    // 3. Encrypt the secret
+    var encoded=new TextEncoder().encode(secretText);
+    var ciphertext=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,encoded);
+
+    // 4. Export the key as raw bytes
+    var rawKey=await crypto.subtle.exportKey('raw',key);
+
+    // 5. POST to the API
+    var viewsSelect=document.getElementById('views-select');
+    var ttlSelect=document.getElementById('ttl-select');
+
+    var resp=await fetch('/api/secrets',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        encrypted:b64urlEncode(ciphertext),
+        iv:b64urlEncode(iv),
+        views:parseInt(viewsSelect.value),
+        hours:parseInt(ttlSelect.value)
+      })
+    });
+
+    if(!resp.ok){
+      var errBody='';
+      try{errBody=(await resp.json()).error||'';}catch(e){}
+      throw new Error('Server error (HTTP '+resp.status+')'+(errBody?': '+errBody:''));
+    }
+
+    var data=await resp.json();
+
+    // 6. Construct the shareable URL with key in fragment
+    var keyB64=b64urlEncode(rawKey);
+    var shareURL=window.location.origin+'/s/'+data.id+'#'+keyB64;
+
+    // Show result
+    document.getElementById('form-section').style.display='none';
+    document.getElementById('link-output').value=shareURL;
+    document.getElementById('result-section').style.display='block';
+
+  }catch(e){
+    showError(e.message||'An unexpected error occurred.');
+    btn.disabled=false;
+    btn.textContent='Encrypt & Share';
+  }
+}
+
+function copyLink(){
+  var input=document.getElementById('link-output');
+  input.select();
+  input.setSelectionRange(0,99999);
+  try{
+    navigator.clipboard.writeText(input.value).then(function(){
+      showToast();
+    });
+  }catch(e){
+    document.execCommand('copy');
+    showToast();
+  }
+}
+
+function showToast(){
+  var toast=document.getElementById('copy-toast');
+  toast.style.display='block';
+  setTimeout(function(){toast.style.display='none'},2000);
+}
+
+function resetForm(){
+  document.getElementById('result-section').style.display='none';
+  document.getElementById('form-section').style.display='block';
+  document.getElementById('secret-input').value='';
+  document.getElementById('encrypt-btn').disabled=false;
+  document.getElementById('encrypt-btn').textContent='Encrypt & Share';
+  hideError();
+}
+</script>
+</body>
+</html>

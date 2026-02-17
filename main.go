@@ -8,7 +8,7 @@ import (
 	"github.com/taw/zkettle/cmd"
 )
 
-//go:embed web/viewer.html
+//go:embed web
 var webFS embed.FS
 
 var version = "dev"
