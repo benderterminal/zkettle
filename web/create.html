@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:">
 <title>zKettle - Create Secret</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300ff41' stroke-width='2'><rect x='3' y='11' width='18' height='11' rx='2'/><path d='M7 11V7a5 5 0 0110 0v4'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239DED9D' stroke-width='2'><rect x='3' y='11' width='18' height='11' rx='2'/><path d='M7 11V7a5 5 0 0110 0v4'/></svg>">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{
@@ -18,9 +18,9 @@ body{
   padding:2rem 1rem;
 }
 .container{max-width:640px;width:100%}
-a{color:#00ff41;text-decoration:none}
+a{color:#9DED9D;text-decoration:none}
 a:hover{text-decoration:underline}
-.banner{color:#00ff41;font-size:.7rem;line-height:1.2;margin-bottom:1.5rem;text-align:center}
+.banner{color:#9DED9D;font-size:.7rem;line-height:1.2;margin-bottom:1.5rem;text-align:left;display:flex;justify-content:center}
 .banner a{color:inherit;text-decoration:none}
 .banner a:hover{opacity:.8}
 h1{font-size:1.2rem;color:#e0e0e0;margin-bottom:1.5rem;font-weight:400}
@@ -52,7 +52,7 @@ textarea{
 }
 textarea:focus{
   outline:none;
-  border-color:#00ff41;
+  border-color:#9DED9D;
 }
 textarea::placeholder{color:#555}
 .options{
@@ -81,17 +81,51 @@ select{
 }
 select:focus{
   outline:none;
-  border-color:#00ff41;
+  border-color:#9DED9D;
 }
 select option{
   background:#111;
   color:#e0e0e0;
 }
+input[type="number"],
+input[type="datetime-local"]{
+  width:100%;
+  background:#0a0a0a;
+  border:1px solid #333;
+  border-radius:4px;
+  color:#e0e0e0;
+  font-family:inherit;
+  font-size:.8rem;
+  padding:.5rem .75rem;
+  transition:border-color .15s;
+}
+input[type="number"]:focus,
+input[type="datetime-local"]:focus{
+  outline:none;
+  border-color:#9DED9D;
+}
+input[type="datetime-local"]::-webkit-calendar-picker-indicator{
+  filter:invert(1);
+  cursor:pointer;
+}
+.btn-now{
+  background:#222;
+  color:#9DED9D;
+  border:1px solid #333;
+  border-radius:4px;
+  padding:.4rem .6rem;
+  font-family:inherit;
+  font-size:.7rem;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:background .15s;
+}
+.btn-now:hover{background:#2a2a2a}
 .btn-primary{
   display:block;
   width:100%;
   margin-top:1.25rem;
-  background:#00ff41;
+  background:#9DED9D;
   color:#0a0a0a;
   border:none;
   border-radius:4px;
@@ -102,7 +136,7 @@ select option{
   cursor:pointer;
   transition:opacity .15s;
 }
-.btn-primary:hover{opacity:.85}
+.btn-primary:hover{background:#6BBF6B}
 .btn-primary:disabled{
   opacity:.4;
   cursor:not-allowed;
@@ -134,7 +168,7 @@ select option{
   background:#0a0a0a;
   border:1px solid #333;
   border-radius:4px;
-  color:#00ff41;
+  color:#9DED9D;
   font-family:inherit;
   font-size:.75rem;
   padding:.6rem .75rem;
@@ -142,7 +176,7 @@ select option{
 }
 .btn-copy{
   background:#222;
-  color:#00ff41;
+  color:#9DED9D;
   border:1px solid #333;
   border-radius:4px;
   padding:.6rem 1rem;
@@ -163,7 +197,7 @@ select option{
   display:inline-block;
   margin-top:1rem;
   font-size:.8rem;
-  color:#00ff41;
+  color:#9DED9D;
   cursor:pointer;
   background:none;
   border:none;
@@ -173,7 +207,7 @@ select option{
 .create-another:hover{text-decoration:underline}
 .copy-toast{
   font-size:.75rem;
-  color:#00ff41;
+  color:#9DED9D;
   margin-top:.25rem;
   display:none;
 }
@@ -187,15 +221,15 @@ noscript{
 </head>
 <body>
 <div class="container">
-<pre class="banner"><a href="/">         ) )
-        ( (
-     _  ~)~
- ___| |/ /
-|_  / ' /
- / /| . \
-/___|_|\_\</a></pre>
+<pre class="banner"><a href="/">        ) )
+       ( (
+     _  ~)~   _   _   _
+ ___| |/ /___| |_| |_| | ___
+|_  / ' // _ \ __| __| |/ _ \
+ / /| . \  __/ |_| |_| |  __/
+/___|_|\_\___|\__|\__|_|\___|</a></pre>
 
-<h1>create a secret</h1>
+<h1 id="page-title">create a secret</h1>
 
 <div class="card" id="form-section">
   <label for="secret-input">secret content</label>
@@ -204,20 +238,14 @@ noscript{
   <div class="options">
     <div class="option">
       <label for="views-select">max views</label>
-      <select id="views-select">
-        <option value="1" selected>1</option>
-        <option value="5">5</option>
-        <option value="10">10</option>
-        <option value="100">100</option>
-      </select>
+      <input type="number" id="views-select" min="1" max="100" value="1">
     </div>
     <div class="option">
-      <label for="ttl-select">expires after</label>
-      <select id="ttl-select">
-        <option value="1">1 hour</option>
-        <option value="24" selected>24 hours</option>
-        <option value="168">7 days</option>
-      </select>
+      <label for="ttl-select">expires at</label>
+      <div style="display:flex;gap:.4rem;align-items:stretch">
+        <input type="datetime-local" id="ttl-select" style="flex:1">
+        <button type="button" class="btn-now" onclick="setNow()">Now</button>
+      </div>
     </div>
   </div>
 
@@ -240,6 +268,38 @@ noscript{
 </div>
 
 <script>
+// Initialize datetime input on page load
+function initForm(){
+  var now=new Date();
+  var oneHourFromNow=new Date(now.getTime()+3600000);
+  var thirtyDaysFromNow=new Date(now.getTime()+(30*24*3600000));
+
+  // Format dates for datetime-local input (YYYY-MM-DDThh:mm)
+  function formatDateTime(date){
+    var year=date.getFullYear();
+    var month=String(date.getMonth()+1).padStart(2,'0');
+    var day=String(date.getDate()).padStart(2,'0');
+    var hours=String(date.getHours()).padStart(2,'0');
+    var minutes=String(date.getMinutes()).padStart(2,'0');
+    return year+'-'+month+'-'+day+'T'+hours+':'+minutes;
+  }
+
+  var ttlInput=document.getElementById('ttl-select');
+  ttlInput.value=formatDateTime(oneHourFromNow);
+  ttlInput.min=formatDateTime(now);
+  ttlInput.max=formatDateTime(thirtyDaysFromNow);
+}
+
+function setNow(){
+  var now=new Date();
+  var year=now.getFullYear();
+  var month=String(now.getMonth()+1).padStart(2,'0');
+  var day=String(now.getDate()).padStart(2,'0');
+  var hours=String(now.getHours()).padStart(2,'0');
+  var minutes=String(now.getMinutes()).padStart(2,'0');
+  document.getElementById('ttl-select').value=year+'-'+month+'-'+day+'T'+hours+':'+minutes;
+}
+
 function b64urlEncode(buf){
   var bytes=new Uint8Array(buf);
   var binary='';
@@ -288,6 +348,10 @@ async function createSecret(){
     var viewsSelect=document.getElementById('views-select');
     var ttlSelect=document.getElementById('ttl-select');
 
+    // Calculate hours from datetime difference
+    var expiryTime=new Date(ttlSelect.value);
+    var hoursUntilExpiry=Math.max(1,Math.ceil((expiryTime-new Date())/3600000));
+
     var resp=await fetch('/api/secrets',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -295,7 +359,7 @@ async function createSecret(){
         encrypted:b64urlEncode(ciphertext),
         iv:b64urlEncode(iv),
         views:parseInt(viewsSelect.value),
-        hours:parseInt(ttlSelect.value)
+        hours:hoursUntilExpiry
       })
     });
 
@@ -312,6 +376,7 @@ async function createSecret(){
     var shareURL=window.location.origin+'/s/'+data.id+'#'+keyB64;
 
     // Show result
+    document.getElementById('page-title').textContent='share this link';
     document.getElementById('form-section').style.display='none';
     document.getElementById('link-output').value=shareURL;
     document.getElementById('result-section').style.display='block';
@@ -344,6 +409,7 @@ function showToast(){
 }
 
 function resetForm(){
+  document.getElementById('page-title').textContent='create a secret';
   document.getElementById('result-section').style.display='none';
   document.getElementById('form-section').style.display='block';
   document.getElementById('secret-input').value='';
@@ -351,6 +417,9 @@ function resetForm(){
   document.getElementById('encrypt-btn').textContent='Encrypt & Share';
   hideError();
 }
+
+// Initialize form on page load
+initForm();
 </script>
 </body>
 </html>

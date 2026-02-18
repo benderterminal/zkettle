@@ -81,7 +81,7 @@ func runServe(host string, port int, dataDir, baseURL string, corsOrigins []stri
 
 	errCh := make(chan error, 1)
 	go func() {
-		PrintBanner(os.Stderr)
+		PrintBannerFull(os.Stderr)
 		fmt.Fprintf(os.Stderr, "zkettle serving on %s:%d\n", host, port)
 		errCh <- httpSrv.ListenAndServe()
 	}()

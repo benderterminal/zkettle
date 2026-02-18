@@ -59,6 +59,9 @@ func New(dbPath string) (*Store, error) {
 		return nil, err
 	}
 
+	// Migrate: add delete_token column if missing (pre-existing databases)
+	db.Exec(`ALTER TABLE secrets ADD COLUMN delete_token TEXT NOT NULL DEFAULT ''`)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Store{db: db, cancel: cancel}
 
