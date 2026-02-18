@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/taw/zkettle/internal/baseurl"
 	"github.com/taw/zkettle/internal/server"
 	"github.com/taw/zkettle/internal/store"
 )
@@ -29,17 +30,20 @@ func setupTestEnv(t *testing.T) (*mcp.Server, *store.Store, string) {
 	viewerFS := fstest.MapFS{
 		"viewer.html": &fstest.MapFile{Data: []byte("<html>test</html>")},
 	}
-	cfg := server.Config{}
+	bu := baseurl.New("")
+	cfg := server.Config{BaseURL: bu}
 	srv := server.New(cfg, st, viewerFS)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
+
+	bu.Set(ts.URL)
 
 	mcpSrv := mcp.NewServer(&mcp.Implementation{
 		Name:    "zkettle-test",
 		Version: "test",
 	}, nil)
 
-	RegisterTools(mcpSrv, st, ts.URL)
+	RegisterTools(mcpSrv, st, bu)
 
 	return mcpSrv, st, ts.URL
 }

@@ -11,13 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/taw/zkettle/internal/baseurl"
 	"github.com/taw/zkettle/internal/store"
 )
 
 const maxBodySize = 1024 * 1024 // 1MB
 
 type Config struct {
-	BaseURL string
+	BaseURL *baseurl.BaseURL
 }
 
 type Server struct {
