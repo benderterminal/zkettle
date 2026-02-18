@@ -12,22 +12,30 @@ import (
 	"syscall"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/taw/zkettle/internal/baseurl"
 	"github.com/taw/zkettle/internal/mcptools"
 	"github.com/taw/zkettle/internal/server"
 	"github.com/taw/zkettle/internal/store"
+	"github.com/taw/zkettle/internal/tunnel"
 )
 
 func RunMCP(args []string, webFS embed.FS, version string) error {
 	f := flag.NewFlagSet("mcp", flag.ExitOnError)
 	port := f.Int("port", 3000, "HTTP port for API server")
 	dataDir := f.String("data", "./data", "Data directory")
-	baseURL := f.String("base-url", "", "Base URL for generated links")
+	baseURLFlag := f.String("base-url", "", "Base URL for generated links")
+	tunnelFlag := f.Bool("tunnel", false, "Expose server via Cloudflare Quick Tunnel")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
 
-	if *baseURL == "" {
-		*baseURL = fmt.Sprintf("http://localhost:%d", *port)
+	if *tunnelFlag && *baseURLFlag != "" {
+		return fmt.Errorf("--tunnel and --base-url are mutually exclusive")
+	}
+
+	bu := baseurl.New(fmt.Sprintf("http://localhost:%d", *port))
+	if *baseURLFlag != "" {
+		bu.Set(*baseURLFlag)
 	}
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
@@ -46,7 +54,7 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 		return fmt.Errorf("creating web fs: %w", err)
 	}
 
-	cfg := server.Config{BaseURL: *baseURL}
+	cfg := server.Config{BaseURL: bu}
 	srv := server.New(cfg, st, subFS)
 	handler := server.RateLimiter(60, 60)(srv.Handler())
 
@@ -64,18 +72,30 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 		}
 	}()
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if *tunnelFlag {
+		tun, err := tunnel.Start(ctx, *port)
+		if err != nil {
+			httpSrv.Shutdown(context.Background())
+			st.Close()
+			return fmt.Errorf("starting tunnel: %w", err)
+		}
+		defer tun.Close()
+		bu.Set(tun.URL())
+		fmt.Fprintf(os.Stderr, "tunnel: %s\n", tun.URL())
+	}
+
 	// Create and configure MCP server
 	mcpSrv := mcp.NewServer(&mcp.Implementation{
 		Name:    "zkettle",
 		Version: version,
 	}, nil)
 
-	mcptools.RegisterTools(mcpSrv, st, *baseURL)
+	mcptools.RegisterTools(mcpSrv, st, bu)
 
 	// Run MCP server on stdio (blocks)
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
 	err = mcpSrv.Run(ctx, &mcp.StdioTransport{})
 
 	// Cleanup

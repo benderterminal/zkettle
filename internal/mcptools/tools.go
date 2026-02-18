@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/taw/zkettle/internal/baseurl"
 	"github.com/taw/zkettle/internal/crypto"
 	"github.com/taw/zkettle/internal/store"
 )
@@ -33,7 +34,7 @@ type RevokeSecretInput struct {
 
 type ListSecretsInput struct{}
 
-func RegisterTools(srv *mcp.Server, st *store.Store, baseURL string) {
+func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "create_secret",
 		Description: "Encrypt and store a secret, returning an expiring URL",
@@ -60,7 +61,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL string) {
 			return nil, nil, fmt.Errorf("storing secret: %w", err)
 		}
 
-		secretURL := fmt.Sprintf("%s/s/%s#%s", baseURL, id, crypto.EncodeKey(key))
+		secretURL := fmt.Sprintf("%s/s/%s#%s", baseURL.Get(), id, crypto.EncodeKey(key))
 		result := fmt.Sprintf("url: %s\ndelete_token: %s", secretURL, deleteToken)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: result}},
