@@ -7,3 +7,5 @@ dist/
 *.db-wal
 *.db-shm
 data/
+.DS_Store
+zkettle
