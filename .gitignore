@@ -8,4 +8,4 @@ dist/
 *.db-shm
 data/
 .DS_Store
-zkettle
+/zkettle
