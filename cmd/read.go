@@ -49,7 +49,7 @@ func RunRead(args []string) error {
 	apiURL := fmt.Sprintf("%s://%s/api/secrets/%s", u.Scheme, u.Host, id)
 	resp, err := http.Get(apiURL)
 	if err != nil {
-		return fmt.Errorf("fetching secret: %w", err)
+		return connError("fetching secret", err)
 	}
 	defer resp.Body.Close()
 

@@ -10,12 +10,16 @@ import (
 func RunRevoke(args []string) error {
 	fs := flag.NewFlagSet("revoke", flag.ExitOnError)
 	serverURL := fs.String("server", "http://localhost:3000", "Server URL")
+	token := fs.String("token", "", "Delete token (from create output)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: zkettle revoke [options] <id>")
+		return fmt.Errorf("usage: zkettle revoke --token <token> [options] <id>")
+	}
+	if *token == "" {
+		return fmt.Errorf("--token is required (shown when the secret was created)")
 	}
 	id := fs.Arg(0)
 
@@ -23,9 +27,10 @@ func RunRevoke(args []string) error {
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Authorization", "Bearer "+*token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("deleting secret: %w", err)
+		return connError("deleting secret", err)
 	}
 	defer resp.Body.Close()
 

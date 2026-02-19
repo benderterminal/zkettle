@@ -211,6 +211,35 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
   margin-top:.25rem;
   display:none;
 }
+.revoke-row{
+  display:flex;
+  align-items:center;
+  gap:.75rem;
+  margin-top:1rem;
+}
+.btn-revoke{
+  background:transparent;
+  color:#ef4444;
+  border:1px solid #333;
+  border-radius:4px;
+  padding:.5rem 1rem;
+  font-family:inherit;
+  font-size:.75rem;
+  cursor:pointer;
+  transition:all .15s;
+}
+.btn-revoke:hover{
+  border-color:#ef4444;
+  background:rgba(239,68,68,.1);
+}
+.btn-revoke:disabled{
+  opacity:.4;
+  cursor:not-allowed;
+}
+.revoke-status{
+  font-size:.75rem;
+  color:#888;
+}
 noscript{
   display:block;
   text-align:center;
@@ -261,6 +290,10 @@ noscript{
   </div>
   <p class="warning">This link contains the decryption key. Anyone with it can view the secret.</p>
   <div class="copy-toast" id="copy-toast">Copied to clipboard</div>
+  <div class="revoke-row">
+    <button class="btn-revoke" id="revoke-btn" onclick="revokeSecret()">Revoke Secret</button>
+    <span class="revoke-status" id="revoke-status"></span>
+  </div>
   <button class="create-another" onclick="resetForm()">Create Another</button>
 </div>
 
@@ -268,6 +301,9 @@ noscript{
 </div>
 
 <script>
+var currentSecretID='';
+var currentDeleteToken='';
+
 // Initialize datetime input on page load
 function initForm(){
   var now=new Date();
@@ -371,7 +407,11 @@ async function createSecret(){
 
     var data=await resp.json();
 
-    // 6. Construct the shareable URL with key in fragment
+    // 6. Store secret ID and delete token for revoke
+    currentSecretID=data.id;
+    currentDeleteToken=data.delete_token;
+
+    // 7. Construct the shareable URL with key in fragment
     var keyB64=b64urlEncode(rawKey);
     var shareURL=window.location.origin+'/s/'+data.id+'#'+keyB64;
 
@@ -379,6 +419,9 @@ async function createSecret(){
     document.getElementById('page-title').textContent='share this link';
     document.getElementById('form-section').style.display='none';
     document.getElementById('link-output').value=shareURL;
+    document.getElementById('revoke-btn').disabled=false;
+    document.getElementById('revoke-btn').textContent='Revoke Secret';
+    document.getElementById('revoke-status').textContent='';
     document.getElementById('result-section').style.display='block';
 
   }catch(e){
@@ -408,7 +451,49 @@ function showToast(){
   setTimeout(function(){toast.style.display='none'},2000);
 }
 
+async function revokeSecret(){
+  if(!currentSecretID||!currentDeleteToken) return;
+
+  var btn=document.getElementById('revoke-btn');
+  var status=document.getElementById('revoke-status');
+  btn.disabled=true;
+  btn.textContent='Revoking...';
+  status.textContent='';
+
+  try{
+    var resp=await fetch('/api/secrets/'+currentSecretID,{
+      method:'DELETE',
+      headers:{'Authorization':'Bearer '+currentDeleteToken}
+    });
+    if(resp.status===204){
+      status.textContent='Secret revoked.';
+      status.style.color='#9DED9D';
+      btn.textContent='Revoked';
+      currentSecretID='';
+      currentDeleteToken='';
+    }else if(resp.status===404){
+      status.textContent='Already gone.';
+      status.style.color='#888';
+      btn.textContent='Revoked';
+    }else{
+      var errBody='';
+      try{errBody=(await resp.json()).error||'';}catch(e){}
+      status.textContent='Failed'+(errBody?': '+errBody:'');
+      status.style.color='#ef4444';
+      btn.disabled=false;
+      btn.textContent='Revoke Secret';
+    }
+  }catch(e){
+    status.textContent='Network error.';
+    status.style.color='#ef4444';
+    btn.disabled=false;
+    btn.textContent='Revoke Secret';
+  }
+}
+
 function resetForm(){
+  currentSecretID='';
+  currentDeleteToken='';
   document.getElementById('page-title').textContent='create a secret';
   document.getElementById('result-section').style.display='none';
   document.getElementById('form-section').style.display='block';

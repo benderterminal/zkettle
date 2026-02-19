@@ -107,9 +107,10 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 		defer tun.Close()
 		bu.Set(tun.URL())
 		waitForTunnel(tun.URL())
-		fmt.Fprintf(os.Stderr, "\r\033[K\n  > open in browser: %s\n\n",
-			hyperlink(tun.URL(), tun.URL()),
-		)
+		fmt.Fprintf(os.Stderr, "\r\033[K\n")
+		printQuickStart(tun.URL())
+	} else {
+		printQuickStart(fmt.Sprintf("http://%s:%d", host, port))
 	}
 
 	select {
@@ -124,6 +125,20 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 		st.Close()
 		return err
 	}
+}
+
+// printQuickStart writes the server URL and example commands to stderr.
+func printQuickStart(baseURL string) {
+	fmt.Fprintf(os.Stderr, "  > open homepage:\n")
+	fmt.Fprintf(os.Stderr, "    %s\n\n", hyperlink(baseURL, baseURL))
+	fmt.Fprintf(os.Stderr, "  > create a secret:\n")
+	fmt.Fprintf(os.Stderr, "    zkettle create --server %s --views 2 --hours 1 \"my secret\"\n\n", baseURL)
+	fmt.Fprintf(os.Stderr, "  > reveal a secret:\n")
+	fmt.Fprintf(os.Stderr, "    zkettle read <secret-url>\n\n")
+	fmt.Fprintf(os.Stderr, "  > revoke a secret:\n")
+	fmt.Fprintf(os.Stderr, "    zkettle revoke --server %s --token <delete-token> <id>\n\n", baseURL)
+	fmt.Fprintf(os.Stderr, "  > help:\n")
+	fmt.Fprintf(os.Stderr, "    zkettle help\n\n")
 }
 
 // waitForTunnel polls the tunnel URL with a countdown until it responds.

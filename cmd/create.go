@@ -53,7 +53,7 @@ func RunCreate(args []string) error {
 
 	resp, err := http.Post(*serverURL+"/api/secrets", "application/json", bytes.NewReader(b))
 	if err != nil {
-		return fmt.Errorf("posting to server: %w", err)
+		return connError("posting to server", err)
 	}
 	defer resp.Body.Close()
 
@@ -63,8 +63,9 @@ func RunCreate(args []string) error {
 	}
 
 	var result struct {
-		ID        string `json:"id"`
-		ExpiresAt string `json:"expires_at"`
+		ID          string `json:"id"`
+		ExpiresAt   string `json:"expires_at"`
+		DeleteToken string `json:"delete_token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return fmt.Errorf("decoding response: %w", err)
@@ -72,5 +73,7 @@ func RunCreate(args []string) error {
 
 	url := fmt.Sprintf("%s/s/%s#%s", *serverURL, result.ID, crypto.EncodeKey(key))
 	fmt.Println(url)
+	fmt.Fprintf(os.Stderr, "  expires: %s\n", result.ExpiresAt)
+	fmt.Fprintf(os.Stderr, "  revoke:  zkettle revoke --server %s --token %s %s\n", *serverURL, result.DeleteToken, result.ID)
 	return nil
 }
