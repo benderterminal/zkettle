@@ -1,9 +1,7 @@
 package server
 
 import (
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -12,6 +10,7 @@ import (
 	"time"
 
 	"github.com/taw/zkettle/internal/baseurl"
+	"github.com/taw/zkettle/internal/id"
 	"github.com/taw/zkettle/internal/store"
 )
 
@@ -78,6 +77,12 @@ type getResponse struct {
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req createRequest
@@ -130,11 +135,11 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := generateID()
-	deleteToken := generateID()
+	secretID := id.Generate()
+	deleteToken := id.Generate()
 	expiresAt := time.Now().Add(time.Duration(req.Hours) * time.Hour)
 
-	if err := s.store.Create(id, encBytes, ivBytes, req.Views, expiresAt, deleteToken); err != nil {
+	if err := s.store.Create(secretID, encBytes, ivBytes, req.Views, expiresAt, deleteToken); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to store secret")
 		return
 	}
@@ -142,15 +147,19 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(createResponse{
-		ID:          id,
+		ID:          secretID,
 		ExpiresAt:   expiresAt.UTC().Format(time.RFC3339),
 		DeleteToken: deleteToken,
 	})
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	encrypted, iv, err := s.store.Get(id)
+	secretID := r.PathValue("id")
+	if !id.Valid(secretID) {
+		writeError(w, http.StatusBadRequest, "invalid secret ID format")
+		return
+	}
+	encrypted, iv, err := s.store.Get(secretID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "secret not found")
@@ -168,7 +177,11 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	secretID := r.PathValue("id")
+	if !id.Valid(secretID) {
+		writeError(w, http.StatusBadRequest, "invalid secret ID format")
+		return
+	}
 
 	token := ""
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
@@ -179,7 +192,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.Delete(id, token); err != nil {
+	if err := s.store.Delete(secretID, token); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "secret not found")
 			return
@@ -207,8 +220,12 @@ func (s *Server) handleViewer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	err := s.store.Status(id)
+	secretID := r.PathValue("id")
+	if !id.Valid(secretID) {
+		writeError(w, http.StatusBadRequest, "invalid secret ID format")
+		return
+	}
+	err := s.store.Status(secretID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrExpired) {
 			writeError(w, http.StatusNotFound, "secret not found")
@@ -233,6 +250,11 @@ func (s *Server) servePage(w http.ResponseWriter, name string) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if err := s.store.Ping(); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"status":"error"}`))
+		return
+	}
 	w.Write([]byte(`{"status":"ok"}`))
 }
 
@@ -240,12 +262,4 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
-}
-
-func generateID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand: " + err.Error())
-	}
-	return strings.TrimRight(hex.EncodeToString(b), "=")
 }

@@ -24,6 +24,9 @@ type Store struct {
 	db     *sql.DB
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	mu    sync.Mutex
+	timer *time.Timer
 }
 
 func New(dbPath string) (*Store, error) {
@@ -62,29 +65,57 @@ func New(dbPath string) (*Store, error) {
 	// Migrate: add delete_token column if missing (pre-existing databases)
 	db.Exec(`ALTER TABLE secrets ADD COLUMN delete_token TEXT NOT NULL DEFAULT ''`)
 
+	// Index for efficient expiry cleanup queries
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_expires ON secrets(expires_at)`)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Store{db: db, cancel: cancel}
 
-	// Run cleanup once at startup
+	// Run cleanup once at startup, then schedule next
 	s.Cleanup()
 
-	// Start periodic cleanup goroutine
+	// Background goroutine waits for context cancellation to stop the timer
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.Cleanup()
-			}
+		<-ctx.Done()
+		s.mu.Lock()
+		if s.timer != nil {
+			s.timer.Stop()
 		}
+		s.mu.Unlock()
 	}()
 
+	s.scheduleNextCleanup()
+
 	return s, nil
+}
+
+// scheduleNextCleanup queries the nearest expiry and sets a timer to clean up at that time.
+func (s *Store) scheduleNextCleanup() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.timer != nil {
+		s.timer.Stop()
+		s.timer = nil
+	}
+
+	var nextExpiry sql.NullInt64
+	err := s.db.QueryRow(`SELECT MIN(expires_at) FROM secrets WHERE expires_at > unixepoch()`).Scan(&nextExpiry)
+	if err != nil || !nextExpiry.Valid {
+		return // no secrets to clean up
+	}
+
+	delay := time.Until(time.Unix(nextExpiry.Int64, 0))
+	if delay < 0 {
+		delay = 0
+	}
+
+	s.timer = time.AfterFunc(delay, func() {
+		s.Cleanup()
+		s.scheduleNextCleanup()
+	})
 }
 
 func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time, deleteToken string) error {
@@ -92,7 +123,14 @@ func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt
 		`INSERT INTO secrets (id, encrypted, iv, views_left, expires_at, delete_token) VALUES (?, ?, ?, ?, ?, ?)`,
 		id, encrypted, iv, viewsLeft, expiresAt.Unix(), deleteToken,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Reschedule cleanup if this new secret may expire sooner than the current timer
+	s.scheduleNextCleanup()
+
+	return nil
 }
 
 func (s *Store) Get(id string) (encrypted, iv []byte, err error) {
@@ -176,6 +214,10 @@ func (s *Store) Status(id string) error {
 		return ErrExpired
 	}
 	return nil
+}
+
+func (s *Store) Ping() error {
+	return s.db.Ping()
 }
 
 func (s *Store) Cleanup() (int, error) {

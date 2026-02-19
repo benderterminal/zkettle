@@ -2,7 +2,6 @@ package mcptools
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/taw/zkettle/internal/baseurl"
 	"github.com/taw/zkettle/internal/crypto"
+	"github.com/taw/zkettle/internal/id"
 	"github.com/taw/zkettle/internal/store"
 )
 
@@ -53,15 +53,15 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL) {
 			return nil, nil, fmt.Errorf("encrypting: %w", err)
 		}
 
-		id := generateID()
-		deleteToken := generateID()
+		secretID := id.Generate()
+		deleteToken := id.Generate()
 		expiresAt := time.Now().Add(time.Duration(hours) * time.Hour)
 
-		if err := st.Create(id, ciphertext, iv, views, expiresAt, deleteToken); err != nil {
+		if err := st.Create(secretID, ciphertext, iv, views, expiresAt, deleteToken); err != nil {
 			return nil, nil, fmt.Errorf("storing secret: %w", err)
 		}
 
-		secretURL := fmt.Sprintf("%s/s/%s#%s", baseURL.Get(), id, crypto.EncodeKey(key))
+		secretURL := fmt.Sprintf("%s/s/%s#%s", baseURL.Get(), secretID, crypto.EncodeKey(key))
 		result := fmt.Sprintf("url: %s\ndelete_token: %s", secretURL, deleteToken)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: result}},
@@ -166,12 +166,4 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL) {
 			Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},
 		}, nil, nil
 	})
-}
-
-func generateID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand: " + err.Error())
-	}
-	return fmt.Sprintf("%x", b)
 }

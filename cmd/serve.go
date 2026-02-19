@@ -98,7 +98,9 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 	if useTunnel {
 		tun, err := tunnel.Start(ctx, port)
 		if err != nil {
-			httpSrv.Shutdown(context.Background())
+			tunShutdownCtx, tunCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer tunCancel()
+			httpSrv.Shutdown(tunShutdownCtx)
 			st.Close()
 			return fmt.Errorf("starting tunnel: %w", err)
 		}
@@ -113,7 +115,9 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 	select {
 	case <-ctx.Done():
 		fmt.Fprintln(os.Stderr, "\nshutting down...")
-		httpSrv.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		httpSrv.Shutdown(shutdownCtx)
 		st.Close()
 		return nil
 	case err := <-errCh:

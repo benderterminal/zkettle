@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/taw/zkettle/internal/baseurl"
@@ -78,7 +79,9 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	if *tunnelFlag {
 		tun, err := tunnel.Start(ctx, *port)
 		if err != nil {
-			httpSrv.Shutdown(context.Background())
+			tunShutdownCtx, tunCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer tunCancel()
+			httpSrv.Shutdown(tunShutdownCtx)
 			st.Close()
 			return fmt.Errorf("starting tunnel: %w", err)
 		}
@@ -99,7 +102,9 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	err = mcpSrv.Run(ctx, &mcp.StdioTransport{})
 
 	// Cleanup
-	httpSrv.Shutdown(context.Background())
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	httpSrv.Shutdown(shutdownCtx)
 	st.Close()
 
 	return err
