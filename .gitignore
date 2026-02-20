@@ -1,7 +1,7 @@
 PLAN.md
 SUMMARY.md
 plans/
-docs/
+docs/security-model.md
 dist/
 *.db
 *.db-wal
