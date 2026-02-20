@@ -2,13 +2,21 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+// hashToken returns the SHA-256 hex digest of a delete token.
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
 
 var ErrNotFound = errors.New("secret not found")
 var ErrExpired = errors.New("secret expired or consumed")
@@ -92,15 +100,8 @@ func New(dbPath string) (*Store, error) {
 }
 
 // scheduleNextCleanup queries the nearest expiry and sets a timer to clean up at that time.
+// The DB query runs outside the mutex; only timer operations are locked.
 func (s *Store) scheduleNextCleanup() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.timer != nil {
-		s.timer.Stop()
-		s.timer = nil
-	}
-
 	var nextExpiry sql.NullInt64
 	err := s.db.QueryRow(`SELECT MIN(expires_at) FROM secrets WHERE expires_at > unixepoch()`).Scan(&nextExpiry)
 	if err != nil || !nextExpiry.Valid {
@@ -112,6 +113,11 @@ func (s *Store) scheduleNextCleanup() {
 		delay = 0
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.timer != nil {
+		s.timer.Stop()
+	}
 	s.timer = time.AfterFunc(delay, func() {
 		s.Cleanup()
 		s.scheduleNextCleanup()
@@ -121,7 +127,7 @@ func (s *Store) scheduleNextCleanup() {
 func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time, deleteToken string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO secrets (id, encrypted, iv, views_left, expires_at, delete_token) VALUES (?, ?, ?, ?, ?, ?)`,
-		id, encrypted, iv, viewsLeft, expiresAt.Unix(), deleteToken,
+		id, encrypted, iv, viewsLeft, expiresAt.Unix(), hashToken(deleteToken),
 	)
 	if err != nil {
 		return err
@@ -154,22 +160,14 @@ func (s *Store) Get(id string) (encrypted, iv []byte, err error) {
 	return encrypted, iv, nil
 }
 
-var ErrForbidden = errors.New("invalid delete token")
-
 func (s *Store) Delete(id string, deleteToken string) error {
-	res, err := s.db.Exec(`DELETE FROM secrets WHERE id = ? AND delete_token = ?`, id, deleteToken)
+	res, err := s.db.Exec(`DELETE FROM secrets WHERE id = ? AND delete_token = ?`, id, hashToken(deleteToken))
 	if err != nil {
 		return err
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		// Check if the secret exists at all to distinguish not-found from wrong token
-		var exists int
-		err := s.db.QueryRow(`SELECT 1 FROM secrets WHERE id = ?`, id).Scan(&exists)
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
-		return ErrForbidden
+		return ErrNotFound
 	}
 	return nil
 }

@@ -58,7 +58,7 @@ func RunCreate(args []string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return fmt.Errorf("server returned %d: %s", resp.StatusCode, string(respBody))
 	}
 

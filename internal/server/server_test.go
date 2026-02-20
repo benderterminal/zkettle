@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -31,9 +32,9 @@ func newTestServer(t *testing.T) (*Server, *store.Store) {
 	t.Cleanup(func() { st.Close() })
 
 	viewerFS := fstest.MapFS{
-		"viewer.html": &fstest.MapFile{Data: []byte("<html>test viewer</html>")},
+		"viewer.html": &fstest.MapFile{Data: []byte("<html><body>test viewer<script>console.log('ok')</script></body></html>")},
 		"index.html":  &fstest.MapFile{Data: []byte("<html>zKettle landing</html>")},
-		"create.html": &fstest.MapFile{Data: []byte("<html>create secret</html>")},
+		"create.html": &fstest.MapFile{Data: []byte("<html><body>create secret<script>console.log('ok')</script></body></html>")},
 	}
 	srv := New(Config{}, st, viewerFS)
 	return srv, st
@@ -134,13 +135,13 @@ func TestDeleteReturns204(t *testing.T) {
 		t.Fatalf("DELETE without token: got %d, want 401", w.Code)
 	}
 
-	// With wrong token should fail
+	// With wrong token should fail (returns 404 to avoid existence oracle)
 	req = httptest.NewRequest("DELETE", "/api/secrets/"+testIDDel, nil)
 	req.Header.Set("Authorization", "Bearer wrong-tok")
 	w = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("DELETE with wrong token: got %d, want 403", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("DELETE with wrong token: got %d, want 404", w.Code)
 	}
 
 	// With correct token should succeed
@@ -327,5 +328,69 @@ func TestHandleCreatePage(t *testing.T) {
 	}
 	if !bytes.Contains(w.Body.Bytes(), []byte("create secret")) {
 		t.Fatalf("create page missing expected content, got: %s", w.Body.String())
+	}
+}
+
+// --- CSP nonce tests (M-2) ---
+
+func TestCSPNonceOnHTMLPages(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// Pages with scripts should have nonce in CSP header and script tag
+	for _, path := range []string{"/create", "/s/some-id"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		csp := w.Header().Get("Content-Security-Policy")
+		if csp == "" {
+			t.Fatalf("GET %s: missing CSP header", path)
+		}
+		if !strings.Contains(csp, "nonce-") {
+			t.Fatalf("GET %s: CSP missing nonce: %s", path, csp)
+		}
+		if strings.Contains(csp, "script-src 'unsafe-inline'") {
+			t.Fatalf("GET %s: CSP script-src still contains unsafe-inline: %s", path, csp)
+		}
+		if !bytes.Contains(w.Body.Bytes(), []byte("script nonce=")) {
+			t.Fatalf("GET %s: response body missing script nonce attribute", path)
+		}
+	}
+
+	// Landing page (no scripts) should still get CSP but no script nonce in body
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	csp := w.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("GET /: missing CSP header")
+	}
+	if strings.Contains(csp, "script-src 'unsafe-inline'") {
+		t.Fatalf("GET /: CSP script-src still contains unsafe-inline: %s", csp)
+	}
+
+	// API endpoints should NOT have CSP
+	req = httptest.NewRequest("GET", "/health", nil)
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if csp := w.Header().Get("Content-Security-Policy"); csp != "" {
+		t.Fatalf("GET /health: API endpoint should not have CSP, got: %s", csp)
+	}
+}
+
+func TestCSPNonceUniquePerRequest(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req1 := httptest.NewRequest("GET", "/create", nil)
+	w1 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w1, req1)
+
+	req2 := httptest.NewRequest("GET", "/create", nil)
+	w2 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w2, req2)
+
+	csp1 := w1.Header().Get("Content-Security-Policy")
+	csp2 := w2.Header().Get("Content-Security-Policy")
+	if csp1 == csp2 {
+		t.Fatal("CSP nonces should be unique per request, but got identical headers")
 	}
 }

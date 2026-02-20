@@ -57,7 +57,7 @@ func RunRead(args []string) error {
 		return fmt.Errorf("secret not found (expired or already viewed)")
 	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return fmt.Errorf("server returned %d: %s", resp.StatusCode, string(body))
 	}
 

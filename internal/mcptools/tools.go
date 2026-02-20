@@ -104,7 +104,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL) {
 			return nil, nil, fmt.Errorf("secret not found (expired or already viewed)")
 		}
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 			return nil, nil, fmt.Errorf("server returned %d: %s", resp.StatusCode, string(body))
 		}
 

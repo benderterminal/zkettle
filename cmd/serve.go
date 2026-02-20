@@ -75,18 +75,22 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 		return fmt.Errorf("creating web fs: %w", err)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	cfg := server.Config{BaseURL: bu}
 	srv := server.New(cfg, st, subFS)
 
-	handler := server.CORSMiddleware(corsOrigins)(server.RateLimiter(60, 60)(srv.Handler()))
+	handler := server.CORSMiddleware(corsOrigins)(server.RateLimiter(ctx, 60, 60)(srv.Handler()))
 
 	httpSrv := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", host, port),
-		Handler: handler,
+		Addr:              fmt.Sprintf("%s:%d", host, port),
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	errCh := make(chan error, 1)
 	go func() {

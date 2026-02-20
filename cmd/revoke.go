@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 )
 
 func RunRevoke(args []string) error {
@@ -19,7 +20,10 @@ func RunRevoke(args []string) error {
 		return fmt.Errorf("usage: zkettle revoke --token <token> [options] <id>")
 	}
 	if *token == "" {
-		return fmt.Errorf("--token is required (shown when the secret was created)")
+		*token = os.Getenv("ZKETTLE_DELETE_TOKEN")
+	}
+	if *token == "" {
+		return fmt.Errorf("--token is required (or set ZKETTLE_DELETE_TOKEN env var)")
 	}
 	id := fs.Arg(0)
 
@@ -35,7 +39,7 @@ func RunRevoke(args []string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return fmt.Errorf("server returned %d: %s", resp.StatusCode, string(body))
 	}
 

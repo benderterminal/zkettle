@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"sync"
@@ -22,13 +23,13 @@ type ipEntry struct {
 	lastSeen time.Time
 }
 
-func newIPRateLimiter(rps float64, burst int) *ipRateLimiter {
+func newIPRateLimiter(ctx context.Context, rps float64, burst int) *ipRateLimiter {
 	rl := &ipRateLimiter{
 		limiters: make(map[string]*ipEntry),
 		rps:      rate.Limit(rps),
 		burst:    burst,
 	}
-	go rl.cleanup()
+	go rl.cleanup(ctx)
 	return rl
 }
 
@@ -44,25 +45,31 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 	return entry.limiter.Allow()
 }
 
-func (rl *ipRateLimiter) cleanup() {
+func (rl *ipRateLimiter) cleanup(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		rl.mu.Lock()
-		cutoff := time.Now().Add(-10 * time.Minute)
-		for ip, entry := range rl.limiters {
-			if entry.lastSeen.Before(cutoff) {
-				delete(rl.limiters, ip)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			rl.mu.Lock()
+			cutoff := time.Now().Add(-10 * time.Minute)
+			for ip, entry := range rl.limiters {
+				if entry.lastSeen.Before(cutoff) {
+					delete(rl.limiters, ip)
+				}
 			}
+			rl.mu.Unlock()
 		}
-		rl.mu.Unlock()
 	}
 }
 
 // RateLimiter returns middleware that limits requests per IP address.
 // rps is requests per second, burst is the maximum burst size.
-func RateLimiter(rps float64, burst int) func(http.Handler) http.Handler {
-	rl := newIPRateLimiter(rps, burst)
+// The cleanup goroutine exits when ctx is cancelled.
+func RateLimiter(ctx context.Context, rps float64, burst int) func(http.Handler) http.Handler {
+	rl := newIPRateLimiter(ctx, rps, burst)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip, _, _ := net.SplitHostPort(r.RemoteAddr)

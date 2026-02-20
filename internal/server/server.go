@@ -1,9 +1,11 @@
 package server
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -53,7 +55,6 @@ func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -197,10 +198,6 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "secret not found")
 			return
 		}
-		if errors.Is(err, store.ErrForbidden) {
-			writeError(w, http.StatusForbidden, "invalid delete token")
-			return
-		}
 		writeError(w, http.StatusInternalServerError, "failed to delete secret")
 		return
 	}
@@ -244,8 +241,23 @@ func (s *Server) servePage(w http.ResponseWriter, name string) {
 		http.Error(w, "page not found", http.StatusInternalServerError)
 		return
 	}
+
+	// Generate a per-request nonce for CSP
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	nonce := base64.StdEncoding.EncodeToString(nonceBytes)
+
+	// Inject nonce into <script> tags (pages have at most 1 script tag)
+	html := strings.Replace(string(data), "<script>", fmt.Sprintf(`<script nonce="%s">`, nonce), 1)
+
+	// Set CSP header with nonce for script-src
+	csp := fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:", nonce)
+	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(data)
+	w.Write([]byte(html))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

@@ -55,13 +55,20 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 		return fmt.Errorf("creating web fs: %w", err)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	cfg := server.Config{BaseURL: bu}
 	srv := server.New(cfg, st, subFS)
-	handler := server.RateLimiter(60, 60)(srv.Handler())
+	handler := server.RateLimiter(ctx, 60, 60)(srv.Handler())
 
 	httpSrv := &http.Server{
-		Addr:    fmt.Sprintf("0.0.0.0:%d", *port),
-		Handler: handler,
+		Addr:              fmt.Sprintf("0.0.0.0:%d", *port),
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// Start HTTP server in background
@@ -72,9 +79,6 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 			fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
 		}
 	}()
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	if *tunnelFlag {
 		tun, err := tunnel.Start(ctx, *port)
