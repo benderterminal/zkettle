@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -10,6 +11,32 @@ import (
 
 	"golang.org/x/time/rate"
 )
+
+// statusRecorder wraps http.ResponseWriter to capture the status code.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sr *statusRecorder) WriteHeader(code int) {
+	sr.status = code
+	sr.ResponseWriter.WriteHeader(code)
+}
+
+// RequestLogger returns middleware that logs each request.
+// Logs: timestamp, method, path, status code, duration, client IP.
+// Sensitive data (bodies, auth headers) is never logged.
+func RequestLogger(trustProxy ...bool) func(http.Handler) http.Handler {
+	trust := len(trustProxy) > 0 && trustProxy[0]
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(rec, r)
+			log.Printf("%s %s %d %s ip=%s", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond), clientIP(r, trust))
+		})
+	}
+}
 
 // ipRateLimiter tracks per-IP rate limiters with automatic cleanup of stale entries.
 type ipRateLimiter struct {

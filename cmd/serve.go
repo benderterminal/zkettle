@@ -27,6 +27,7 @@ func RunServe(args []string, webFS embed.FS) error {
 	baseURLFlag := f.String("base-url", "", "Base URL for generated links")
 	corsOrigins := f.String("cors-origins", "", "Comma-separated list of allowed CORS origins")
 	tunnelFlag := f.Bool("tunnel", false, "Expose server via Cloudflare Quick Tunnel")
+	trustProxy := f.Bool("trust-proxy", false, "Trust X-Forwarded-For/X-Real-Ip headers (enable when behind a reverse proxy)")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
@@ -56,11 +57,11 @@ func RunServe(args []string, webFS embed.FS) error {
 		}
 	}
 
-	return runServe(*host, *port, *dataDir, bu, origins, *tunnelFlag, webFS)
+	return runServe(*host, *port, *dataDir, bu, origins, *tunnelFlag, *trustProxy, webFS)
 }
 
-func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOrigins []string, useTunnel bool, webFS embed.FS) error {
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOrigins []string, useTunnel bool, trustProxy bool, webFS embed.FS) error {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("creating data directory: %w", err)
 	}
 
@@ -81,7 +82,7 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 	cfg := server.Config{BaseURL: bu}
 	srv := server.New(cfg, st, subFS)
 
-	handler := server.CORSMiddleware(corsOrigins)(server.RateLimiter(ctx, 60, 60)(srv.Handler()))
+	handler := server.RequestLogger(trustProxy)(server.CORSMiddleware(corsOrigins)(server.RateLimiter(ctx, 60, 60, trustProxy)(srv.Handler())))
 
 	httpSrv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", host, port),
@@ -136,7 +137,7 @@ func printQuickStart(baseURL string) {
 	fmt.Fprintf(os.Stderr, "  > open homepage:\n")
 	fmt.Fprintf(os.Stderr, "    %s\n\n", hyperlink(baseURL, baseURL))
 	fmt.Fprintf(os.Stderr, "  > create a secret:\n")
-	fmt.Fprintf(os.Stderr, "    zkettle create --server %s --views 2 --hours 1 \"my secret\"\n\n", baseURL)
+	fmt.Fprintf(os.Stderr, "    echo \"my secret\" | zkettle create --server %s --views 2 --hours 1\n\n", baseURL)
 	fmt.Fprintf(os.Stderr, "  > reveal a secret:\n")
 	fmt.Fprintf(os.Stderr, "    zkettle read <secret-url>\n\n")
 	fmt.Fprintf(os.Stderr, "  > revoke a secret:\n")

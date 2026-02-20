@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -8,9 +9,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/taw/zkettle/internal/crypto"
 )
+
+const maxSecretSize = 500 * 1024 // 500KB — matches server-side encrypted limit
 
 func RunCreate(args []string) error {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
@@ -21,18 +25,41 @@ func RunCreate(args []string) error {
 		return err
 	}
 
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: zkettle create [options] <plaintext>")
+	// Reject positional arguments — secrets passed as CLI args are visible in
+	// process lists (ps, /proc/*/cmdline) and shell history.
+	if fs.NArg() > 0 && fs.Arg(0) != "-" {
+		return fmt.Errorf("passing secrets as arguments exposes them in process lists and shell history\n\nUse stdin instead:\n  echo \"secret\" | zkettle create [options]\n  zkettle create [options]          # interactive prompt")
 	}
-	plaintext := fs.Arg(0)
 
-	// If plaintext is "-", read from stdin
-	if plaintext == "-" {
-		data, err := io.ReadAll(os.Stdin)
+	var plaintext string
+
+	// Read from stdin (pipe, interactive prompt, or explicit "-")
+	stat, _ := os.Stdin.Stat()
+	if (stat.Mode() & os.ModeCharDevice) != 0 {
+		// Interactive terminal — prompt
+		fmt.Fprint(os.Stderr, "Enter secret (then press Enter): ")
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			plaintext = scanner.Text()
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("reading stdin: %w", err)
+		}
+	} else {
+		// Piped input or explicit stdin ("-")
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, maxSecretSize+1))
 		if err != nil {
 			return fmt.Errorf("reading stdin: %w", err)
 		}
+		if len(data) > maxSecretSize {
+			return fmt.Errorf("secret exceeds %dKB limit", maxSecretSize/1024)
+		}
 		plaintext = string(data)
+	}
+
+	plaintext = strings.TrimRight(plaintext, "\n")
+	if plaintext == "" {
+		return fmt.Errorf("secret content is empty\n\nUsage:\n  echo \"secret\" | zkettle create [options]\n  zkettle create [options]          # interactive prompt")
 	}
 
 	ciphertext, iv, key, err := crypto.Encrypt([]byte(plaintext))
@@ -51,7 +78,7 @@ func RunCreate(args []string) error {
 		return err
 	}
 
-	resp, err := http.Post(*serverURL+"/api/secrets", "application/json", bytes.NewReader(b))
+	resp, err := httpClient.Post(*serverURL+"/api/secrets", "application/json", bytes.NewReader(b))
 	if err != nil {
 		return connError("posting to server", err)
 	}

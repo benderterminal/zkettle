@@ -43,7 +43,7 @@ func setupTestEnv(t *testing.T) (*mcp.Server, *store.Store, string) {
 		Version: "test",
 	}, nil)
 
-	RegisterTools(mcpSrv, st, bu)
+	RegisterTools(mcpSrv, st, bu, Options{AllowPrivateIPs: true})
 
 	return mcpSrv, st, ts.URL
 }

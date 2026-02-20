@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/taw/zkettle/internal/crypto"
+	"github.com/taw/zkettle/internal/id"
 )
 
 func RunRead(args []string) error {
@@ -33,7 +34,10 @@ func RunRead(args []string) error {
 	if len(parts) != 2 || parts[1] == "" {
 		return fmt.Errorf("invalid secret URL: expected /s/{id} in path")
 	}
-	id := parts[1]
+	secretID := parts[1]
+	if !id.Valid(secretID) {
+		return fmt.Errorf("invalid secret ID format")
+	}
 
 	// Extract key from fragment
 	keyStr := u.Fragment
@@ -46,8 +50,8 @@ func RunRead(args []string) error {
 	}
 
 	// Build API URL
-	apiURL := fmt.Sprintf("%s://%s/api/secrets/%s", u.Scheme, u.Host, id)
-	resp, err := http.Get(apiURL)
+	apiURL := fmt.Sprintf("%s://%s/api/secrets/%s", u.Scheme, u.Host, secretID)
+	resp, err := httpClient.Get(apiURL)
 	if err != nil {
 		return connError("fetching secret", err)
 	}

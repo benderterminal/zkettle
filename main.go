@@ -53,7 +53,7 @@ func printUsage() {
 
 Commands:
   serve     Start the HTTP server
-  create    Encrypt and store a secret
+  create    Encrypt and store a secret (reads from stdin)
   read      Retrieve and decrypt a secret
   revoke    Delete a secret
   mcp       Start MCP server (stdio) with HTTP backend

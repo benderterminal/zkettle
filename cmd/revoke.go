@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+
+	"github.com/taw/zkettle/internal/id"
 )
 
 func RunRevoke(args []string) error {
@@ -25,14 +27,17 @@ func RunRevoke(args []string) error {
 	if *token == "" {
 		return fmt.Errorf("--token is required (or set ZKETTLE_DELETE_TOKEN env var)")
 	}
-	id := fs.Arg(0)
+	secretID := fs.Arg(0)
+	if !id.Valid(secretID) {
+		return fmt.Errorf("invalid secret ID format: expected 32-character hex string")
+	}
 
-	req, err := http.NewRequest("DELETE", *serverURL+"/api/secrets/"+id, nil)
+	req, err := http.NewRequest("DELETE", *serverURL+"/api/secrets/"+secretID, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+*token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return connError("deleting secret", err)
 	}

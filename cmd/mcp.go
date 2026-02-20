@@ -26,6 +26,7 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	dataDir := f.String("data", "./data", "Data directory")
 	baseURLFlag := f.String("base-url", "", "Base URL for generated links")
 	tunnelFlag := f.Bool("tunnel", false, "Expose server via Cloudflare Quick Tunnel")
+	trustProxy := f.Bool("trust-proxy", false, "Trust X-Forwarded-For/X-Real-Ip headers (enable when behind a reverse proxy)")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
@@ -39,7 +40,7 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 		bu.Set(*baseURLFlag)
 	}
 
-	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
 		return fmt.Errorf("creating data directory: %w", err)
 	}
 
@@ -60,7 +61,7 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 
 	cfg := server.Config{BaseURL: bu}
 	srv := server.New(cfg, st, subFS)
-	handler := server.RateLimiter(ctx, 60, 60)(srv.Handler())
+	handler := server.RequestLogger(*trustProxy)(server.CORSMiddleware(nil)(server.RateLimiter(ctx, 60, 60, *trustProxy)(srv.Handler())))
 
 	httpSrv := &http.Server{
 		Addr:              fmt.Sprintf("0.0.0.0:%d", *port),
