@@ -410,7 +410,7 @@ function renderRecent(){
     btn.className='btn-revoke';
     btn.style.cssText='font-size:.65rem;padding:.3rem .6rem';
     btn.textContent='Revoke';
-    btn.onclick=(function(entry,btnEl){return function(){revokeRecent(entry,btnEl);};})(t,btn);
+    btn.addEventListener('click',(function(entry,btnEl){return function(){revokeRecent(entry,btnEl);};})(t,btn));
     row.appendChild(info);
     row.appendChild(btn);
     list.appendChild(row);

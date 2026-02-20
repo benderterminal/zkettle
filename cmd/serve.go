@@ -23,7 +23,7 @@ import (
 func RunServe(args []string, webFS embed.FS) error {
 	f := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := f.Int("port", 3000, "HTTP port")
-	host := f.String("host", "0.0.0.0", "HTTP host")
+	host := f.String("host", "127.0.0.1", "HTTP host (use 0.0.0.0 to listen on all interfaces)")
 	dataDir := f.String("data", "./data", "Data directory")
 	baseURLFlag := f.String("base-url", "", "Base URL for generated links")
 	corsOrigins := f.String("cors-origins", "", "Comma-separated list of allowed CORS origins")
