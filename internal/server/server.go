@@ -20,8 +20,45 @@ import (
 const maxBodySize = 1024 * 1024 // 1MB
 
 type Config struct {
-	BaseURL    *baseurl.BaseURL
-	TrustProxy bool
+	BaseURL     *baseurl.BaseURL
+	TrustProxy  bool
+	ProxyDepth  int
+	CORSOrigins []string
+	ReadRPS     float64
+	ReadBurst   int
+	WriteRPS    float64
+	WriteBurst  int
+}
+
+// BuildHandler composes the middleware chain around the given handler.
+// Zero-value rate limit fields default to 120/120 read and 60/60 write.
+func BuildHandler(ctx context.Context, cfg Config, handler http.Handler) http.Handler {
+	readRPS := cfg.ReadRPS
+	if readRPS == 0 {
+		readRPS = 120
+	}
+	readBurst := cfg.ReadBurst
+	if readBurst == 0 {
+		readBurst = 120
+	}
+	writeRPS := cfg.WriteRPS
+	if writeRPS == 0 {
+		writeRPS = 60
+	}
+	writeBurst := cfg.WriteBurst
+	if writeBurst == 0 {
+		writeBurst = 60
+	}
+	proxyDepth := cfg.ProxyDepth
+	if proxyDepth == 0 {
+		proxyDepth = 1
+	}
+
+	h := handler
+	h = RateLimiter(ctx, readRPS, readBurst, writeRPS, writeBurst, cfg.TrustProxy, proxyDepth)(h)
+	h = CORSMiddleware(cfg.CORSOrigins)(h)
+	h = RequestLogger(cfg.TrustProxy, proxyDepth)(h)
+	return h
 }
 
 type Server struct {
@@ -90,7 +127,7 @@ type getResponse struct {
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r, s.cfg.TrustProxy)
+	ip := clientIP(r, s.cfg.TrustProxy, s.cfg.ProxyDepth)
 	if !s.createLimiter.allow(ip) {
 		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
@@ -214,6 +251,10 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Delete(secretID, token); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "secret not found")
+			return
+		}
+		if errors.Is(err, store.ErrUnauthorized) {
+			writeError(w, http.StatusForbidden, "invalid delete token")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to delete secret")

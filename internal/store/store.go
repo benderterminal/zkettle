@@ -6,7 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -21,6 +21,7 @@ func hashToken(token string) string {
 
 var ErrNotFound = errors.New("secret not found")
 var ErrExpired = errors.New("secret expired or consumed")
+var ErrUnauthorized = errors.New("unauthorized: invalid delete token")
 
 type SecretMeta struct {
 	ID        string
@@ -134,7 +135,7 @@ func (s *Store) scheduleNextCleanup() {
 			return
 		}
 		if _, err := s.Cleanup(); err != nil {
-			log.Printf("store: cleanup error: %v", err)
+			slog.Error("store cleanup failed", "error", err)
 		}
 		s.scheduleNextCleanup()
 	})
@@ -177,15 +178,19 @@ func (s *Store) Get(id string) (encrypted, iv []byte, err error) {
 }
 
 func (s *Store) Delete(id string, deleteToken string) error {
-	res, err := s.db.Exec(`DELETE FROM secrets WHERE id = ? AND delete_token = ?`, id, hashToken(deleteToken))
+	var storedHash string
+	err := s.db.QueryRow(`SELECT delete_token FROM secrets WHERE id = ?`, id).Scan(&storedHash)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ErrNotFound
+	if storedHash != hashToken(deleteToken) {
+		return ErrUnauthorized
 	}
-	return nil
+	_, err = s.db.Exec(`DELETE FROM secrets WHERE id = ?`, id)
+	return err
 }
 
 func (s *Store) List() ([]SecretMeta, error) {

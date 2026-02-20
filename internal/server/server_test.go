@@ -139,13 +139,13 @@ func TestDeleteReturns204(t *testing.T) {
 		t.Fatalf("DELETE without token: got %d, want 401", w.Code)
 	}
 
-	// With wrong token should fail (returns 404 to avoid existence oracle)
+	// With wrong token should fail with 403 (not 404)
 	req = httptest.NewRequest("DELETE", "/api/secrets/"+testIDDel, nil)
 	req.Header.Set("Authorization", "Bearer wrong-tok")
 	w = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("DELETE with wrong token: got %d, want 404", w.Code)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("DELETE with wrong token: got %d, want 403", w.Code)
 	}
 
 	// With correct token should succeed

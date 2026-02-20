@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -26,14 +26,19 @@ func (sr *statusRecorder) WriteHeader(code int) {
 // RequestLogger returns middleware that logs each request.
 // Logs: timestamp, method, path, status code, duration, client IP.
 // Sensitive data (bodies, auth headers) is never logged.
-func RequestLogger(trustProxy ...bool) func(http.Handler) http.Handler {
-	trust := len(trustProxy) > 0 && trustProxy[0]
+func RequestLogger(trustProxy bool, proxyDepth int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rec, r)
-			log.Printf("%s %s %d %s ip=%s", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond), clientIP(r, trust))
+			slog.Info("request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", rec.status,
+				"duration", time.Since(start).Round(time.Millisecond),
+				"ip", clientIP(r, trustProxy, proxyDepth),
+			)
 		})
 	}
 }
@@ -119,16 +124,22 @@ func (rl *ipRateLimiter) cleanup(ctx context.Context) {
 // clientIP extracts the client IP address from a request.
 // When trustProxy is true, X-Forwarded-For is consulted (leftmost entry).
 // Otherwise, RemoteAddr is used directly.
-func clientIP(r *http.Request, trustProxy bool) string {
+func clientIP(r *http.Request, trustProxy bool, proxyDepth int) string {
 	if trustProxy {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			// X-Forwarded-For: client, proxy1, proxy2 — take the leftmost
-			if i := strings.IndexByte(xff, ','); i > 0 {
-				xff = xff[:i]
+			parts := strings.Split(xff, ",")
+			if proxyDepth <= 0 {
+				proxyDepth = 1
 			}
-			xff = strings.TrimSpace(xff)
-			if xff != "" {
-				return xff
+			// Take the Nth-from-right entry where N = proxyDepth.
+			// This correctly ignores client-spoofed entries prepended
+			// before the first trusted proxy.
+			idx := len(parts) - proxyDepth
+			if idx >= 0 && idx < len(parts) {
+				ip := strings.TrimSpace(parts[idx])
+				if ip != "" {
+					return ip
+				}
 			}
 		}
 		if xri := r.Header.Get("X-Real-Ip"); xri != "" {
@@ -146,12 +157,16 @@ func clientIP(r *http.Request, trustProxy bool) string {
 // rps is requests per second, burst is the maximum burst size.
 // When trustProxy is true, X-Forwarded-For / X-Real-Ip headers are used for client IP.
 // The cleanup goroutine exits when ctx is cancelled.
-func RateLimiter(ctx context.Context, rps float64, burst int, trustProxy ...bool) func(http.Handler) http.Handler {
-	rl := newIPRateLimiter(ctx, rps, burst, 10000)
-	trust := len(trustProxy) > 0 && trustProxy[0]
+func RateLimiter(ctx context.Context, readRPS float64, readBurst int, writeRPS float64, writeBurst int, trustProxy bool, proxyDepth int) func(http.Handler) http.Handler {
+	readRL := newIPRateLimiter(ctx, readRPS, readBurst, 10000)
+	writeRL := newIPRateLimiter(ctx, writeRPS, writeBurst, 10000)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := clientIP(r, trust)
+			ip := clientIP(r, trustProxy, proxyDepth)
+			rl := readRL
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+				rl = writeRL
+			}
 			if !rl.allow(ip) {
 				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -90,18 +90,18 @@ func newSSRFSafeClient(timeout time.Duration, allowPrivate bool) *http.Client {
 }
 
 type CreateSecretInput struct {
-	Content string `json:"content" jsonschema:"the plaintext secret to encrypt"`
-	Views   int    `json:"views,omitempty" jsonschema:"max views before expiry, default 1"`
-	Hours   int    `json:"hours,omitempty" jsonschema:"hours until expiry, default 24"`
+	Content string `json:"content" jsonschema:"The plaintext secret to encrypt and share. Maximum 500KB."`
+	Views   int    `json:"views,omitempty" jsonschema:"Maximum number of views before the secret is permanently deleted. Default 1 (single-use). Range: 1-100."`
+	Hours   int    `json:"hours,omitempty" jsonschema:"Hours until the secret expires and is permanently deleted regardless of remaining views. Default 24. Range: 1-720 (30 days)."`
 }
 
 type ReadSecretInput struct {
-	URL string `json:"url" jsonschema:"the full zKettle secret URL including the key fragment"`
+	URL string `json:"url" jsonschema:"The full zKettle secret URL including the decryption key in the fragment (#)."`
 }
 
 type RevokeSecretInput struct {
-	ID          string `json:"id" jsonschema:"the secret ID to revoke"`
-	DeleteToken string `json:"delete_token" jsonschema:"the delete token returned when the secret was created"`
+	ID          string `json:"id" jsonschema:"The secret ID to permanently delete."`
+	DeleteToken string `json:"delete_token" jsonschema:"The delete token returned by create_secret when the secret was originally created. Required for authorization."`
 }
 
 type ListSecretsInput struct{}
@@ -124,7 +124,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "create_secret",
-		Description: "Encrypt and store a secret, returning an expiring URL",
+		Description: "Encrypt and store a secret that self-destructs after being viewed. Use this to share passwords, API keys, tokens, certificates, or other sensitive data via a one-time URL. The secret is encrypted client-side before storage — the server never sees the plaintext.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateSecretInput) (*mcp.CallToolResult, any, error) {
 		if args.Content == "" {
 			return nil, nil, fmt.Errorf("content is required")
@@ -170,7 +170,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "read_secret",
-		Description: "Retrieve and decrypt a secret from a zKettle URL",
+		Description: "Retrieve and decrypt a secret from a zKettle URL. WARNING: This consumes one view — if the secret has only 1 view remaining, it will be permanently deleted after this call. The URL must include the decryption key in the fragment (#).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ReadSecretInput) (*mcp.CallToolResult, any, error) {
 		u, err := validateURLScheme(args.URL)
 		if err != nil {
@@ -199,8 +199,11 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 		apiURL := fmt.Sprintf("%s://%s/api/secrets/%s", u.Scheme, u.Host, secretID)
 		resp, err := client.Get(apiURL)
 		if err != nil {
-			log.Printf("mcptools: read_secret fetch error: %v", err)
-			return nil, nil, fmt.Errorf("failed to retrieve secret")
+			if strings.Contains(err.Error(), "private/internal") {
+				return nil, nil, fmt.Errorf("request blocked: cannot connect to private/internal addresses")
+			}
+			slog.Warn("read_secret fetch failed", "error", err, "host", u.Host)
+			return nil, nil, fmt.Errorf("network error: could not connect to %s", u.Host)
 		}
 		defer resp.Body.Close()
 
@@ -208,8 +211,8 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 			return nil, nil, fmt.Errorf("secret not found (expired or already viewed)")
 		}
 		if resp.StatusCode != http.StatusOK {
-			log.Printf("mcptools: read_secret unexpected status %d for %s", resp.StatusCode, u.Host)
-			return nil, nil, fmt.Errorf("failed to retrieve secret")
+			slog.Warn("read_secret unexpected status", "status", resp.StatusCode, "host", u.Host)
+			return nil, nil, fmt.Errorf("server returned unexpected status %d", resp.StatusCode)
 		}
 
 		var data struct {
@@ -241,7 +244,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "revoke_secret",
-		Description: "Delete a secret by ID (requires the delete_token from creation)",
+		Description: "Permanently delete a secret before it expires or is viewed. Requires the delete_token returned by create_secret. Use this to revoke access to a secret you created.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args RevokeSecretInput) (*mcp.CallToolResult, any, error) {
 		if !id.Valid(args.ID) {
 			return nil, nil, fmt.Errorf("invalid secret ID format")

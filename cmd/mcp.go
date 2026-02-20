@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -60,9 +61,11 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
 	cfg := server.Config{BaseURL: bu, TrustProxy: *trustProxy}
 	srv := server.New(cfg, st, subFS)
-	handler := server.RequestLogger(*trustProxy)(server.CORSMiddleware(nil)(server.RateLimiter(ctx, 60, 60, *trustProxy)(srv.Handler())))
+	handler := server.BuildHandler(ctx, cfg, srv.Handler())
 
 	httpSrv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", *host, *port),
@@ -76,9 +79,9 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	// Start HTTP server in background
 	go func() {
 		PrintBannerFull(os.Stderr)
-		fmt.Fprintf(os.Stderr, "zkettle HTTP server on %s:%d\n", *host, *port)
+		slog.Info("HTTP server started", "host", *host, "port", *port)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
+			slog.Error("HTTP server failed", "error", err)
 		}
 	}()
 
@@ -93,7 +96,7 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 		}
 		defer tun.Close()
 		bu.Set(tun.URL())
-		fmt.Fprintf(os.Stderr, "tunnel: %s\n", tun.URL())
+		slog.Info("tunnel started", "url", tun.URL())
 	}
 
 	// Create and configure MCP server

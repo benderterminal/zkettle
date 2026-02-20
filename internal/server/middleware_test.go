@@ -12,8 +12,8 @@ func TestRateLimiterRejects(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Very low limit: 1 request per second, burst of 1
-	limited := RateLimiter(context.Background(), 1, 1)(handler)
+	// Very low limit: 1 request per second, burst of 1 for both read and write
+	limited := RateLimiter(context.Background(), 1, 1, 1, 1, false, 1)(handler)
 
 	// First request should succeed
 	req := httptest.NewRequest("GET", "/", nil)
@@ -38,7 +38,7 @@ func TestClientIPNoProxy(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Forwarded-For", "1.2.3.4")
 	// trustProxy=false, should ignore XFF
-	ip := clientIP(req, false)
+	ip := clientIP(req, false, 1)
 	if ip == "1.2.3.4" {
 		t.Fatalf("trustProxy=false should ignore X-Forwarded-For, got %q", ip)
 	}
@@ -47,16 +47,22 @@ func TestClientIPNoProxy(t *testing.T) {
 func TestClientIPWithProxy(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Forwarded-For", "1.2.3.4, 10.0.0.1")
-	ip := clientIP(req, true)
+	// proxyDepth=1: take 1st-from-right (IP our trusted proxy saw)
+	ip := clientIP(req, true, 1)
+	if ip != "10.0.0.1" {
+		t.Fatalf("trustProxy=true, depth=1: got %q, want %q", ip, "10.0.0.1")
+	}
+	// proxyDepth=2: take 2nd-from-right (real client behind two proxies)
+	ip = clientIP(req, true, 2)
 	if ip != "1.2.3.4" {
-		t.Fatalf("trustProxy=true: got %q, want %q", ip, "1.2.3.4")
+		t.Fatalf("trustProxy=true, depth=2: got %q, want %q", ip, "1.2.3.4")
 	}
 }
 
 func TestClientIPXRealIP(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Real-Ip", "5.6.7.8")
-	ip := clientIP(req, true)
+	ip := clientIP(req, true, 1)
 	if ip != "5.6.7.8" {
 		t.Fatalf("X-Real-Ip: got %q, want %q", ip, "5.6.7.8")
 	}
@@ -66,7 +72,7 @@ func TestClientIPXFFPriority(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Forwarded-For", "1.2.3.4")
 	req.Header.Set("X-Real-Ip", "5.6.7.8")
-	ip := clientIP(req, true)
+	ip := clientIP(req, true, 1)
 	if ip != "1.2.3.4" {
 		t.Fatalf("XFF should take priority over X-Real-Ip: got %q", ip)
 	}
@@ -76,7 +82,7 @@ func TestRateLimiterTrustProxy(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	limited := RateLimiter(context.Background(), 1, 1, true)(handler)
+	limited := RateLimiter(context.Background(), 1, 1, 1, 1, true, 1)(handler)
 
 	// Two requests from different XFF IPs should both succeed
 	req1 := httptest.NewRequest("GET", "/", nil)
@@ -182,5 +188,74 @@ func TestCORSPreflight(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Allow-Headers"); got == "" {
 		t.Fatal("preflight missing Access-Control-Allow-Headers")
+	}
+}
+
+// --- Read/write rate limit differentiation (B3) ---
+
+func TestRateLimiterReadWriteSplit(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// readRPS=10, readBurst=10, writeRPS=1, writeBurst=1
+	limited := RateLimiter(context.Background(), 10, 10, 1, 1, false, 1)(handler)
+
+	// First POST should succeed
+	req := httptest.NewRequest("POST", "/api/secrets", nil)
+	w := httptest.NewRecorder()
+	limited.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("first POST: got %d, want 200", w.Code)
+	}
+
+	// Second POST should be rate limited (write burst = 1)
+	req = httptest.NewRequest("POST", "/api/secrets", nil)
+	w = httptest.NewRecorder()
+	limited.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("second POST: got %d, want 429", w.Code)
+	}
+
+	// GETs should still work (read burst = 10)
+	for i := 0; i < 5; i++ {
+		req = httptest.NewRequest("GET", "/api/secrets/test", nil)
+		w = httptest.NewRecorder()
+		limited.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET #%d: got %d, want 200", i+1, w.Code)
+		}
+	}
+}
+
+// --- X-Forwarded-For depth (B4) ---
+
+func TestClientIPProxyDepth(t *testing.T) {
+	tests := []struct {
+		name       string
+		xff        string
+		depth      int
+		trustProxy bool
+		want       string
+	}{
+		{"depth=1 single entry", "1.2.3.4", 1, true, "1.2.3.4"},
+		{"depth=1 two entries", "spoofed, 1.2.3.4", 1, true, "1.2.3.4"},
+		{"depth=2 two entries", "1.2.3.4, 10.0.0.1", 2, true, "1.2.3.4"},
+		{"depth=1 three entries", "spoofed, real, proxy", 1, true, "proxy"},
+		{"depth=2 three entries", "spoofed, real, proxy", 2, true, "real"},
+		{"depth=3 three entries", "spoofed, real, proxy", 3, true, "spoofed"},
+		{"no trust ignores xff", "1.2.3.4", 1, false, "192.0.2.1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/", nil)
+			req.Header.Set("X-Forwarded-For", tt.xff)
+			got := clientIP(req, tt.trustProxy, tt.depth)
+			if got != tt.want {
+				t.Errorf("clientIP(xff=%q, trust=%v, depth=%d) = %q, want %q",
+					tt.xff, tt.trustProxy, tt.depth, got, tt.want)
+			}
+		})
 	}
 }

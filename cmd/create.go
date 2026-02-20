@@ -21,6 +21,9 @@ func RunCreate(args []string) error {
 	views := fs.Int("views", 1, "Max views before expiry")
 	hours := fs.Int("hours", 24, "Hours until expiry")
 	serverURL := fs.String("server", "http://localhost:3000", "Server URL")
+	jsonOut := fs.Bool("json", false, "Output JSON to stdout")
+	quiet := fs.Bool("quiet", false, "Suppress stderr output")
+	fs.BoolVar(quiet, "q", false, "Suppress stderr output (shorthand)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -37,7 +40,9 @@ func RunCreate(args []string) error {
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) != 0 {
 		// Interactive terminal — prompt
-		fmt.Fprint(os.Stderr, "Enter secret (then press Enter): ")
+		if !*quiet && !*jsonOut {
+			fmt.Fprint(os.Stderr, "Enter secret (then press Enter): ")
+		}
 		scanner := bufio.NewScanner(os.Stdin)
 		if scanner.Scan() {
 			plaintext = scanner.Text()
@@ -98,9 +103,22 @@ func RunCreate(args []string) error {
 		return fmt.Errorf("decoding response: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/s/%s#%s", *serverURL, result.ID, crypto.EncodeKey(key))
-	fmt.Println(url)
-	fmt.Fprintf(os.Stderr, "  expires: %s\n", result.ExpiresAt)
-	fmt.Fprintf(os.Stderr, "  revoke:  zkettle revoke --server %s --token %s %s\n", *serverURL, result.DeleteToken, result.ID)
+	secretURL := fmt.Sprintf("%s/s/%s#%s", *serverURL, result.ID, crypto.EncodeKey(key))
+
+	if *jsonOut {
+		out := map[string]string{
+			"url":          secretURL,
+			"id":           result.ID,
+			"delete_token": result.DeleteToken,
+			"expires_at":   result.ExpiresAt,
+		}
+		return json.NewEncoder(os.Stdout).Encode(out)
+	}
+
+	fmt.Println(secretURL)
+	if !*quiet {
+		fmt.Fprintf(os.Stderr, "  expires: %s\n", result.ExpiresAt)
+		fmt.Fprintf(os.Stderr, "  revoke:  zkettle revoke --server %s --token %s %s\n", *serverURL, result.DeleteToken, result.ID)
+	}
 	return nil
 }

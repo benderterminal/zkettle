@@ -262,6 +262,7 @@ noscript{
 <div class="card" id="form-section">
   <label for="secret-input">secret content</label>
   <textarea id="secret-input" rows="4" placeholder="paste your secret here..." spellcheck="false"></textarea>
+  <div id="byte-counter" style="font-size:.7rem;color:#555;text-align:right;margin-top:.25rem;display:none"></div>
 
   <div class="options">
     <div class="option">
@@ -272,7 +273,9 @@ noscript{
       <label for="ttl-select">expires at</label>
       <div style="display:flex;gap:.4rem;align-items:stretch">
         <input type="datetime-local" id="ttl-select" style="flex:1">
-        <button type="button" class="btn-now" onclick="setNow()">Now</button>
+        <button type="button" class="btn-now" onclick="setOffset(5)">+5m</button>
+        <button type="button" class="btn-now" onclick="setOffset(60)">+1h</button>
+        <button type="button" class="btn-now" onclick="setOffset(1440)">+24h</button>
       </div>
     </div>
   </div>
@@ -294,6 +297,11 @@ noscript{
     <span class="revoke-status" id="revoke-status"></span>
   </div>
   <button class="create-another" onclick="resetForm()">Create Another</button>
+</div>
+
+<div class="card" id="recent-section" style="margin-top:1rem;display:none">
+  <p style="font-size:.8rem;color:#777;margin-bottom:.75rem">recent secrets</p>
+  <div id="recent-list"></div>
 </div>
 
 <noscript>JavaScript is required to create secrets.</noscript>
@@ -328,14 +336,106 @@ function initForm(){
   ttlInput.max=formatDateTime(thirtyDaysFromNow);
 }
 
-function setNow(){
-  var now=new Date();
-  var year=now.getFullYear();
-  var month=String(now.getMonth()+1).padStart(2,'0');
-  var day=String(now.getDate()).padStart(2,'0');
-  var hours=String(now.getHours()).padStart(2,'0');
-  var minutes=String(now.getMinutes()).padStart(2,'0');
-  document.getElementById('ttl-select').value=year+'-'+month+'-'+day+'T'+hours+':'+minutes;
+function setOffset(minutes){
+  var d=new Date(Date.now()+minutes*60000);
+  var year=d.getFullYear();
+  var month=String(d.getMonth()+1).padStart(2,'0');
+  var day=String(d.getDate()).padStart(2,'0');
+  var hours=String(d.getHours()).padStart(2,'0');
+  var mins=String(d.getMinutes()).padStart(2,'0');
+  document.getElementById('ttl-select').value=year+'-'+month+'-'+day+'T'+hours+':'+mins;
+}
+
+var MAX_BYTES=500*1024;
+var STORAGE_KEY='zkettle_tokens';
+
+function setupByteCounter(){
+  var textarea=document.getElementById('secret-input');
+  var counter=document.getElementById('byte-counter');
+  var encBtn=document.getElementById('encrypt-btn');
+  textarea.addEventListener('input',function(){
+    var bytes=new TextEncoder().encode(textarea.value).length;
+    if(bytes>MAX_BYTES*0.8){
+      counter.style.display='block';
+      var pct=Math.round(bytes/MAX_BYTES*100);
+      counter.textContent=formatBytes(bytes)+' / '+formatBytes(MAX_BYTES)+' ('+pct+'%)';
+      if(bytes>=MAX_BYTES){
+        counter.style.color='#ef4444';
+        encBtn.disabled=true;
+      }else{
+        counter.style.color='#888';
+        encBtn.disabled=false;
+      }
+    }else{
+      counter.style.display='none';
+      encBtn.disabled=false;
+    }
+  });
+}
+
+function formatBytes(b){
+  if(b<1024) return b+' B';
+  return (b/1024).toFixed(1)+' KB';
+}
+
+function saveToken(id,deleteToken){
+  var tokens=loadTokens();
+  tokens.push({id:id,deleteToken:deleteToken,createdAt:new Date().toISOString()});
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(tokens));}catch(e){}
+}
+
+function loadTokens(){
+  try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');}catch(e){return [];}
+}
+
+function removeToken(id){
+  var tokens=loadTokens().filter(function(t){return t.id!==id;});
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(tokens));}catch(e){}
+}
+
+function renderRecent(){
+  var tokens=loadTokens();
+  var section=document.getElementById('recent-section');
+  var list=document.getElementById('recent-list');
+  if(!tokens.length){section.style.display='none';return;}
+  section.style.display='block';
+  list.innerHTML='';
+  tokens.forEach(function(t){
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:.75rem;padding:.4rem 0;border-bottom:1px solid #222;font-size:.75rem';
+    var info=document.createElement('span');
+    info.style.cssText='flex:1;color:#888;overflow:hidden;text-overflow:ellipsis';
+    info.textContent=t.id.substring(0,12)+'… — '+new Date(t.createdAt).toLocaleString();
+    var btn=document.createElement('button');
+    btn.className='btn-revoke';
+    btn.style.cssText='font-size:.65rem;padding:.3rem .6rem';
+    btn.textContent='Revoke';
+    btn.onclick=(function(entry,btnEl){return function(){revokeRecent(entry,btnEl);};})(t,btn);
+    row.appendChild(info);
+    row.appendChild(btn);
+    list.appendChild(row);
+  });
+}
+
+async function revokeRecent(entry,btn){
+  btn.disabled=true;
+  btn.textContent='Revoking...';
+  try{
+    var resp=await fetch('/api/secrets/'+entry.id,{
+      method:'DELETE',
+      headers:{'Authorization':'Bearer '+entry.deleteToken}
+    });
+    if(resp.status===204||resp.status===404||resp.status===403){
+      removeToken(entry.id);
+      renderRecent();
+    }else{
+      btn.textContent='Failed';
+      btn.disabled=false;
+    }
+  }catch(e){
+    btn.textContent='Error';
+    btn.disabled=false;
+  }
 }
 
 function b64urlEncode(buf){
@@ -412,6 +512,7 @@ async function createSecret(){
     // 6. Store secret ID and delete token for revoke
     currentSecretID=data.id;
     currentDeleteToken=data.delete_token;
+    saveToken(data.id,data.delete_token);
 
     // 7. Construct the shareable URL with key in fragment
     var keyB64=b64urlEncode(rawKey);
@@ -471,6 +572,7 @@ async function revokeSecret(){
       status.textContent='Secret revoked.';
       status.style.color='#9DED9D';
       btn.textContent='Revoked';
+      removeToken(currentSecretID);
       currentSecretID='';
       currentDeleteToken='';
     }else if(resp.status===404){
@@ -503,6 +605,7 @@ function resetForm(){
   document.getElementById('encrypt-btn').disabled=false;
   document.getElementById('encrypt-btn').textContent='Encrypt & Share';
   hideError();
+  renderRecent();
 }
 
 // Expose functions to onclick handlers
@@ -510,10 +613,12 @@ window.createSecret=createSecret;
 window.copyLink=copyLink;
 window.revokeSecret=revokeSecret;
 window.resetForm=resetForm;
-window.setNow=setNow;
+window.setOffset=setOffset;
 
 // Initialize form on page load
 initForm();
+setupByteCounter();
+renderRecent();
 })();
 </script>
 </body>

@@ -132,7 +132,9 @@ button.primary:disabled{
     padding:1rem;
     margin:1rem 0;
     text-align:left;
-    word-break:break-all;
+    word-break:normal;
+    word-wrap:break-word;
+    overflow-wrap:break-word;
     white-space:pre-wrap;
     font-family:inherit;
     font-size:.85rem;
@@ -266,7 +268,8 @@ button.primary:disabled{
 
         <!-- Gone state -->
         <div class="state" id="state-gone">
-            <p class="gone-msg">This secret has expired or has already been viewed.</p>
+            <p class="gone-msg">This secret is no longer available. It was either viewed by its recipient, expired, or the URL may be incorrect.</p>
+            <p class="gone-msg" style="margin-top:.75rem;font-size:.8rem">If you expected to find a secret here, contact the sender.</p>
         </div>
     </div>
 </div>

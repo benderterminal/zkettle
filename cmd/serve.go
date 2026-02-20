@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -79,10 +80,16 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cfg := server.Config{BaseURL: bu, TrustProxy: trustProxy}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	cfg := server.Config{
+		BaseURL:     bu,
+		TrustProxy:  trustProxy,
+		CORSOrigins: corsOrigins,
+	}
 	srv := server.New(cfg, st, subFS)
 
-	handler := server.RequestLogger(trustProxy)(server.CORSMiddleware(corsOrigins)(server.RateLimiter(ctx, 60, 60, trustProxy)(srv.Handler())))
+	handler := server.BuildHandler(ctx, cfg, srv.Handler())
 
 	httpSrv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", host, port),
@@ -96,7 +103,7 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 	errCh := make(chan error, 1)
 	go func() {
 		PrintBannerFull(os.Stderr)
-		fmt.Fprintf(os.Stderr, "zkettle serving on %s:%d\n", host, port)
+		slog.Info("server started", "host", host, "port", port)
 		errCh <- httpSrv.ListenAndServe()
 	}()
 
@@ -120,7 +127,7 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 
 	select {
 	case <-ctx.Done():
-		fmt.Fprintln(os.Stderr, "\nshutting down...")
+		slog.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		httpSrv.Shutdown(shutdownCtx)
