@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,17 +66,42 @@ func (rl *ipRateLimiter) cleanup(ctx context.Context) {
 	}
 }
 
+// clientIP extracts the client IP address from a request.
+// When trustProxy is true, X-Forwarded-For is consulted (leftmost entry).
+// Otherwise, RemoteAddr is used directly.
+func clientIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// X-Forwarded-For: client, proxy1, proxy2 — take the leftmost
+			if i := strings.IndexByte(xff, ','); i > 0 {
+				xff = xff[:i]
+			}
+			xff = strings.TrimSpace(xff)
+			if xff != "" {
+				return xff
+			}
+		}
+		if xri := r.Header.Get("X-Real-Ip"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
+	}
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
+	return ip
+}
+
 // RateLimiter returns middleware that limits requests per IP address.
 // rps is requests per second, burst is the maximum burst size.
+// When trustProxy is true, X-Forwarded-For / X-Real-Ip headers are used for client IP.
 // The cleanup goroutine exits when ctx is cancelled.
-func RateLimiter(ctx context.Context, rps float64, burst int) func(http.Handler) http.Handler {
+func RateLimiter(ctx context.Context, rps float64, burst int, trustProxy ...bool) func(http.Handler) http.Handler {
 	rl := newIPRateLimiter(ctx, rps, burst)
+	trust := len(trustProxy) > 0 && trustProxy[0]
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-			if ip == "" {
-				ip = r.RemoteAddr
-			}
+			ip := clientIP(r, trust)
 			if !rl.allow(ip) {
 				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return

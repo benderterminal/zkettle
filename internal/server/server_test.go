@@ -394,3 +394,35 @@ func TestCSPNonceUniquePerRequest(t *testing.T) {
 		t.Fatal("CSP nonces should be unique per request, but got identical headers")
 	}
 }
+
+// --- HSTS tests (S-6) ---
+
+func TestHSTSHeaderOnHTTPS(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// Simulate request behind HTTPS proxy
+	req := httptest.NewRequest("GET", "/health", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	hsts := w.Header().Get("Strict-Transport-Security")
+	if hsts == "" {
+		t.Fatal("expected HSTS header for HTTPS request, got none")
+	}
+	if !strings.Contains(hsts, "max-age=") {
+		t.Fatalf("HSTS missing max-age: %s", hsts)
+	}
+}
+
+func TestNoHSTSOnHTTP(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if hsts := w.Header().Get("Strict-Transport-Security"); hsts != "" {
+		t.Fatalf("expected no HSTS header for HTTP request, got: %s", hsts)
+	}
+}

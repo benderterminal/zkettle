@@ -55,6 +55,9 @@ func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -250,8 +253,8 @@ func (s *Server) servePage(w http.ResponseWriter, name string) {
 	}
 	nonce := base64.StdEncoding.EncodeToString(nonceBytes)
 
-	// Inject nonce into <script> tags (pages have at most 1 script tag)
-	html := strings.Replace(string(data), "<script>", fmt.Sprintf(`<script nonce="%s">`, nonce), 1)
+	// Inject nonce into all <script> tags
+	html := strings.ReplaceAll(string(data), "<script>", fmt.Sprintf(`<script nonce="%s">`, nonce))
 
 	// Set CSP header with nonce for script-src
 	csp := fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:", nonce)

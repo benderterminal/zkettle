@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"log"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ type SecretMeta struct {
 
 type Store struct {
 	db     *sql.DB
+	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
@@ -77,7 +79,7 @@ func New(dbPath string) (*Store, error) {
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_expires ON secrets(expires_at)`)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Store{db: db, cancel: cancel}
+	s := &Store{db: db, ctx: ctx, cancel: cancel}
 
 	// Run cleanup once at startup, then schedule next
 	s.Cleanup()
@@ -101,7 +103,12 @@ func New(dbPath string) (*Store, error) {
 
 // scheduleNextCleanup queries the nearest expiry and sets a timer to clean up at that time.
 // The DB query runs outside the mutex; only timer operations are locked.
+// Safe to call after Close() — returns immediately if the context is cancelled.
 func (s *Store) scheduleNextCleanup() {
+	if s.ctx.Err() != nil {
+		return // store is closed
+	}
+
 	var nextExpiry sql.NullInt64
 	err := s.db.QueryRow(`SELECT MIN(expires_at) FROM secrets WHERE expires_at > unixepoch()`).Scan(&nextExpiry)
 	if err != nil || !nextExpiry.Valid {
@@ -115,11 +122,20 @@ func (s *Store) scheduleNextCleanup() {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Double-check after acquiring lock in case Close() raced
+	if s.ctx.Err() != nil {
+		return
+	}
 	if s.timer != nil {
 		s.timer.Stop()
 	}
 	s.timer = time.AfterFunc(delay, func() {
-		s.Cleanup()
+		if s.ctx.Err() != nil {
+			return
+		}
+		if _, err := s.Cleanup(); err != nil {
+			log.Printf("store: cleanup error: %v", err)
+		}
 		s.scheduleNextCleanup()
 	})
 }

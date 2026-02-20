@@ -300,6 +300,9 @@ noscript{
 </div>
 
 <script>
+(function(){
+'use strict';
+
 var currentSecretID='';
 var currentDeleteToken='';
 
@@ -502,8 +505,16 @@ function resetForm(){
   hideError();
 }
 
+// Expose functions to onclick handlers
+window.createSecret=createSecret;
+window.copyLink=copyLink;
+window.revokeSecret=revokeSecret;
+window.resetForm=resetForm;
+window.setNow=setNow;
+
 // Initialize form on page load
 initForm();
+})();
 </script>
 </body>
 </html>
