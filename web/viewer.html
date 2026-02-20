@@ -245,14 +245,14 @@ button.primary:disabled{
         <!-- Available state -->
         <div class="state" id="state-available">
             <p class="warning">This secret will be consumed when revealed.</p>
-            <button class="primary" id="reveal-btn" onclick="revealSecret()">Reveal Secret</button>
+            <button class="primary" id="reveal-btn">Reveal Secret</button>
         </div>
 
         <!-- Revealed state -->
         <div class="state" id="state-revealed">
             <div class="secret-display" id="plaintext"></div>
             <div class="actions">
-                <button id="copy-btn" onclick="copySecret()">Copy</button>
+                <button id="copy-btn">Copy</button>
             </div>
             <div class="clipboard-status" id="clipboard-status"></div>
             <div class="keep-wrap">
@@ -466,9 +466,9 @@ button.primary:disabled{
         }, 60000);
     }
 
-    // Expose functions to onclick handlers
-    window.revealSecret = revealSecret;
-    window.copySecret = copySecret;
+    // Wire up event listeners (no inline handlers — CSP nonce requires this)
+    document.getElementById('reveal-btn').addEventListener('click', revealSecret);
+    document.getElementById('copy-btn').addEventListener('click', copySecret);
 
     // Run pre-check on load
     checkAvailability();

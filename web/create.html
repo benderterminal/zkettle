@@ -273,14 +273,14 @@ noscript{
       <label for="ttl-select">expires at</label>
       <div style="display:flex;gap:.4rem;align-items:stretch">
         <input type="datetime-local" id="ttl-select" style="flex:1">
-        <button type="button" class="btn-now" onclick="setOffset(5)">+5m</button>
-        <button type="button" class="btn-now" onclick="setOffset(60)">+1h</button>
-        <button type="button" class="btn-now" onclick="setOffset(1440)">+24h</button>
+        <button type="button" class="btn-now" id="btn-5m">+5m</button>
+        <button type="button" class="btn-now" id="btn-1h">+1h</button>
+        <button type="button" class="btn-now" id="btn-24h">+24h</button>
       </div>
     </div>
   </div>
 
-  <button class="btn-primary" id="encrypt-btn" onclick="createSecret()">Encrypt &amp; Share</button>
+  <button class="btn-primary" id="encrypt-btn">Encrypt &amp; Share</button>
   <div class="error-msg" id="error-msg"></div>
 </div>
 
@@ -288,15 +288,15 @@ noscript{
   <p class="result-label">your secret link:</p>
   <div class="link-row">
     <input class="link-input" id="link-output" type="text" readonly>
-    <button class="btn-copy" id="copy-btn" onclick="copyLink()">Copy Link</button>
+    <button class="btn-copy" id="copy-btn">Copy Link</button>
   </div>
   <p class="warning">This link contains the decryption key. Anyone with it can view the secret.</p>
   <div class="copy-toast" id="copy-toast">Copied to clipboard</div>
   <div class="revoke-row">
-    <button class="btn-revoke" id="revoke-btn" onclick="revokeSecret()">Revoke Secret</button>
+    <button class="btn-revoke" id="revoke-btn">Revoke Secret</button>
     <span class="revoke-status" id="revoke-status"></span>
   </div>
-  <button class="create-another" onclick="resetForm()">Create Another</button>
+  <button class="create-another" id="btn-another">Create Another</button>
 </div>
 
 <div class="card" id="recent-section" style="margin-top:1rem;display:none">
@@ -608,12 +608,14 @@ function resetForm(){
   renderRecent();
 }
 
-// Expose functions to onclick handlers
-window.createSecret=createSecret;
-window.copyLink=copyLink;
-window.revokeSecret=revokeSecret;
-window.resetForm=resetForm;
-window.setOffset=setOffset;
+// Wire up event listeners (no inline handlers — CSP nonce requires this)
+document.getElementById('btn-5m').addEventListener('click',function(){setOffset(5)});
+document.getElementById('btn-1h').addEventListener('click',function(){setOffset(60)});
+document.getElementById('btn-24h').addEventListener('click',function(){setOffset(1440)});
+document.getElementById('encrypt-btn').addEventListener('click',createSecret);
+document.getElementById('copy-btn').addEventListener('click',copyLink);
+document.getElementById('revoke-btn').addEventListener('click',revokeSecret);
+document.getElementById('btn-another').addEventListener('click',resetForm);
 
 // Initialize form on page load
 initForm();
