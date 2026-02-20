@@ -1,7 +1,6 @@
 PLAN.md
 SUMMARY.md
 plans/
-docs/
 dist/
 *.db
 *.db-wal
