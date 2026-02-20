@@ -79,7 +79,7 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cfg := server.Config{BaseURL: bu}
+	cfg := server.Config{BaseURL: bu, TrustProxy: trustProxy}
 	srv := server.New(cfg, st, subFS)
 
 	handler := server.RequestLogger(trustProxy)(server.CORSMiddleware(corsOrigins)(server.RateLimiter(ctx, 60, 60, trustProxy)(srv.Handler())))

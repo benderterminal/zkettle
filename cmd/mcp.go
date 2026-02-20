@@ -25,6 +25,7 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	port := f.Int("port", 3000, "HTTP port for API server")
 	dataDir := f.String("data", "./data", "Data directory")
 	baseURLFlag := f.String("base-url", "", "Base URL for generated links")
+	host := f.String("host", "127.0.0.1", "HTTP host (default 127.0.0.1 for local-only access)")
 	tunnelFlag := f.Bool("tunnel", false, "Expose server via Cloudflare Quick Tunnel")
 	trustProxy := f.Bool("trust-proxy", false, "Trust X-Forwarded-For/X-Real-Ip headers (enable when behind a reverse proxy)")
 	if err := f.Parse(args); err != nil {
@@ -59,12 +60,12 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cfg := server.Config{BaseURL: bu}
+	cfg := server.Config{BaseURL: bu, TrustProxy: *trustProxy}
 	srv := server.New(cfg, st, subFS)
 	handler := server.RequestLogger(*trustProxy)(server.CORSMiddleware(nil)(server.RateLimiter(ctx, 60, 60, *trustProxy)(srv.Handler())))
 
 	httpSrv := &http.Server{
-		Addr:              fmt.Sprintf("0.0.0.0:%d", *port),
+		Addr:              fmt.Sprintf("%s:%d", *host, *port),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -75,7 +76,7 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	// Start HTTP server in background
 	go func() {
 		PrintBannerFull(os.Stderr)
-		fmt.Fprintf(os.Stderr, "zkettle HTTP server on port %d\n", *port)
+		fmt.Fprintf(os.Stderr, "zkettle HTTP server on %s:%d\n", *host, *port)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
 		}

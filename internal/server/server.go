@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -19,22 +20,25 @@ import (
 const maxBodySize = 1024 * 1024 // 1MB
 
 type Config struct {
-	BaseURL *baseurl.BaseURL
+	BaseURL    *baseurl.BaseURL
+	TrustProxy bool
 }
 
 type Server struct {
-	cfg   Config
-	store *store.Store
-	webFS fs.FS
-	mux   *http.ServeMux
+	cfg           Config
+	store         *store.Store
+	webFS         fs.FS
+	mux           *http.ServeMux
+	createLimiter *ipRateLimiter
 }
 
 func New(cfg Config, st *store.Store, webFS fs.FS) *Server {
 	s := &Server{
-		cfg:   cfg,
-		store: st,
-		webFS: webFS,
-		mux:   http.NewServeMux(),
+		cfg:           cfg,
+		store:         st,
+		webFS:         webFS,
+		mux:           http.NewServeMux(),
+		createLimiter: newIPRateLimiter(context.Background(), 10, 10, 10000),
 	}
 	s.mux.HandleFunc("GET /{$}", s.handleLanding)
 	s.mux.HandleFunc("GET /create", s.handleCreatePage)
@@ -48,15 +52,15 @@ func New(cfg Config, st *store.Store, webFS fs.FS) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return securityHeaders(s.mux)
+	return s.securityHeaders(s.mux)
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		if r.TLS != nil || (s.cfg.TrustProxy && r.Header.Get("X-Forwarded-Proto") == "https") {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 		// Prevent caching of API responses
@@ -86,6 +90,12 @@ type getResponse struct {
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r, s.cfg.TrustProxy)
+	if !s.createLimiter.allow(ip) {
+		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+		return
+	}
+
 	ct := r.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
 		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
@@ -263,7 +273,7 @@ func (s *Server) servePage(w http.ResponseWriter, name string) {
 	html = strings.ReplaceAll(html, "<style>", fmt.Sprintf(`<style nonce="%s">`, nonce))
 
 	// Set CSP header with nonce for both script-src and style-src
-	csp := fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'; style-src 'nonce-%s'; connect-src 'self'; img-src data:", nonce, nonce)
+	csp := fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'; style-src 'nonce-%s'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'self'", nonce, nonce)
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(html))

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -199,7 +199,8 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 		apiURL := fmt.Sprintf("%s://%s/api/secrets/%s", u.Scheme, u.Host, secretID)
 		resp, err := client.Get(apiURL)
 		if err != nil {
-			return nil, nil, fmt.Errorf("fetching secret: %w", err)
+			log.Printf("mcptools: read_secret fetch error: %v", err)
+			return nil, nil, fmt.Errorf("failed to retrieve secret")
 		}
 		defer resp.Body.Close()
 
@@ -207,8 +208,8 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 			return nil, nil, fmt.Errorf("secret not found (expired or already viewed)")
 		}
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-			return nil, nil, fmt.Errorf("server returned %d: %s", resp.StatusCode, string(body))
+			log.Printf("mcptools: read_secret unexpected status %d for %s", resp.StatusCode, u.Host)
+			return nil, nil, fmt.Errorf("failed to retrieve secret")
 		}
 
 		var data struct {
@@ -258,7 +259,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_secrets",
-		Description: "List all active secrets on this server (metadata only, no content). Intended for local MCP stdio transport use only.",
+		Description: "List all active secrets on this server (metadata only — no encrypted content or decryption keys). Only accessible via local MCP stdio transport; not exposed over the network.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ListSecretsInput) (*mcp.CallToolResult, any, error) {
 		metas, err := st.List()
 		if err != nil {

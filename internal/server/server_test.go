@@ -23,7 +23,7 @@ const (
 	testIDNone   = "aa000000000000000000000000ffffff" // valid format, doesn't exist
 )
 
-func newTestServer(t *testing.T) (*Server, *store.Store) {
+func newTestServerWithConfig(t *testing.T, cfg Config) (*Server, *store.Store) {
 	t.Helper()
 	st, err := store.New(":memory:")
 	if err != nil {
@@ -36,8 +36,12 @@ func newTestServer(t *testing.T) (*Server, *store.Store) {
 		"index.html":  &fstest.MapFile{Data: []byte("<html>zKettle landing</html>")},
 		"create.html": &fstest.MapFile{Data: []byte("<html><body>create secret<script>console.log('ok')</script></body></html>")},
 	}
-	srv := New(Config{}, st, viewerFS)
+	srv := New(cfg, st, viewerFS)
 	return srv, st
+}
+
+func newTestServer(t *testing.T) (*Server, *store.Store) {
+	return newTestServerWithConfig(t, Config{})
 }
 
 func TestPostCreateSecret(t *testing.T) {
@@ -395,12 +399,12 @@ func TestCSPNonceUniquePerRequest(t *testing.T) {
 	}
 }
 
-// --- HSTS tests (S-6) ---
+// --- HSTS tests (S-6, M-1) ---
 
 func TestHSTSHeaderOnHTTPS(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWithConfig(t, Config{TrustProxy: true})
 
-	// Simulate request behind HTTPS proxy
+	// Simulate request behind HTTPS proxy with trust-proxy enabled
 	req := httptest.NewRequest("GET", "/health", nil)
 	req.Header.Set("X-Forwarded-Proto", "https")
 	w := httptest.NewRecorder()
@@ -408,7 +412,7 @@ func TestHSTSHeaderOnHTTPS(t *testing.T) {
 
 	hsts := w.Header().Get("Strict-Transport-Security")
 	if hsts == "" {
-		t.Fatal("expected HSTS header for HTTPS request, got none")
+		t.Fatal("expected HSTS header for HTTPS request with trust-proxy, got none")
 	}
 	if !strings.Contains(hsts, "max-age=") {
 		t.Fatalf("HSTS missing max-age: %s", hsts)
@@ -424,5 +428,61 @@ func TestNoHSTSOnHTTP(t *testing.T) {
 
 	if hsts := w.Header().Get("Strict-Transport-Security"); hsts != "" {
 		t.Fatalf("expected no HSTS header for HTTP request, got: %s", hsts)
+	}
+}
+
+func TestNoHSTSWithoutTrustProxy(t *testing.T) {
+	srv, _ := newTestServer(t) // TrustProxy defaults to false
+
+	// X-Forwarded-Proto should be ignored when trust-proxy is disabled
+	req := httptest.NewRequest("GET", "/health", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if hsts := w.Header().Get("Strict-Transport-Security"); hsts != "" {
+		t.Fatalf("expected no HSTS when trust-proxy disabled, even with X-Forwarded-Proto, got: %s", hsts)
+	}
+}
+
+func TestCSPContainsBaseURIAndFormAction(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest("GET", "/create", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	csp := w.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "base-uri 'none'") {
+		t.Fatalf("CSP missing base-uri 'none': %s", csp)
+	}
+	if !strings.Contains(csp, "form-action 'self'") {
+		t.Fatalf("CSP missing form-action 'self': %s", csp)
+	}
+}
+
+func TestCreateEndpointRateLimit(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// The create limiter is 10 rps with burst 10.
+	// Send 11 rapid requests — the 11th should be rate limited.
+	body := []byte(`{"encrypted":"dGVzdA","iv":"MTIzNDU2Nzg5MDEy","views":1,"hours":24}`)
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest("POST", "/api/secrets", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("request %d: got %d, want 201", i+1, w.Code)
+		}
+	}
+
+	// 11th request should hit the create rate limit
+	req := httptest.NewRequest("POST", "/api/secrets", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("11th request: got %d, want 429", w.Code)
 	}
 }

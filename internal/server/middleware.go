@@ -39,11 +39,13 @@ func RequestLogger(trustProxy ...bool) func(http.Handler) http.Handler {
 }
 
 // ipRateLimiter tracks per-IP rate limiters with automatic cleanup of stale entries.
+// maxEntries caps the map size to prevent memory exhaustion from IP spoofing attacks.
 type ipRateLimiter struct {
-	mu       sync.Mutex
-	limiters map[string]*ipEntry
-	rps      rate.Limit
-	burst    int
+	mu         sync.Mutex
+	limiters   map[string]*ipEntry
+	rps        rate.Limit
+	burst      int
+	maxEntries int
 }
 
 type ipEntry struct {
@@ -51,11 +53,12 @@ type ipEntry struct {
 	lastSeen time.Time
 }
 
-func newIPRateLimiter(ctx context.Context, rps float64, burst int) *ipRateLimiter {
+func newIPRateLimiter(ctx context.Context, rps float64, burst int, maxEntries int) *ipRateLimiter {
 	rl := &ipRateLimiter{
-		limiters: make(map[string]*ipEntry),
-		rps:      rate.Limit(rps),
-		burst:    burst,
+		limiters:   make(map[string]*ipEntry),
+		rps:        rate.Limit(rps),
+		burst:      burst,
+		maxEntries: maxEntries,
 	}
 	go rl.cleanup(ctx)
 	return rl
@@ -65,12 +68,32 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 	rl.mu.Lock()
 	entry, ok := rl.limiters[ip]
 	if !ok {
+		if rl.maxEntries > 0 && len(rl.limiters) >= rl.maxEntries {
+			rl.evictOldest()
+		}
 		entry = &ipEntry{limiter: rate.NewLimiter(rl.rps, rl.burst)}
 		rl.limiters[ip] = entry
 	}
 	entry.lastSeen = time.Now()
 	rl.mu.Unlock()
 	return entry.limiter.Allow()
+}
+
+// evictOldest removes the least recently seen entry. Must be called with mu held.
+func (rl *ipRateLimiter) evictOldest() {
+	var oldestIP string
+	var oldestTime time.Time
+	first := true
+	for ip, entry := range rl.limiters {
+		if first || entry.lastSeen.Before(oldestTime) {
+			oldestIP = ip
+			oldestTime = entry.lastSeen
+			first = false
+		}
+	}
+	if oldestIP != "" {
+		delete(rl.limiters, oldestIP)
+	}
 }
 
 func (rl *ipRateLimiter) cleanup(ctx context.Context) {
@@ -124,7 +147,7 @@ func clientIP(r *http.Request, trustProxy bool) string {
 // When trustProxy is true, X-Forwarded-For / X-Real-Ip headers are used for client IP.
 // The cleanup goroutine exits when ctx is cancelled.
 func RateLimiter(ctx context.Context, rps float64, burst int, trustProxy ...bool) func(http.Handler) http.Handler {
-	rl := newIPRateLimiter(ctx, rps, burst)
+	rl := newIPRateLimiter(ctx, rps, burst, 10000)
 	trust := len(trustProxy) > 0 && trustProxy[0]
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
