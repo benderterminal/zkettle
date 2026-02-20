@@ -50,7 +50,7 @@ func TestPostCreateSecret(t *testing.T) {
 		"encrypted": "dGVzdA",
 		"iv":        "MTIzNDU2Nzg5MDEy",
 		"views":     1,
-		"hours":     24,
+		"minutes":   1440,
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest("POST", "/api/secrets", bytes.NewReader(b))
@@ -299,7 +299,7 @@ func TestDeleteMalformedIDReturns400(t *testing.T) {
 
 func TestPostWithoutContentTypeReturns415(t *testing.T) {
 	srv, _ := newTestServer(t)
-	body := []byte(`{"encrypted":"dGVzdA","iv":"MTIzNDU2Nzg5MDEy","views":1,"hours":24}`)
+	body := []byte(`{"encrypted":"dGVzdA","iv":"MTIzNDU2Nzg5MDEy","views":1,"minutes":1440}`)
 
 	// No Content-Type header
 	req := httptest.NewRequest("POST", "/api/secrets", bytes.NewReader(body))
@@ -466,7 +466,7 @@ func TestCreateEndpointRateLimit(t *testing.T) {
 
 	// The create limiter is 10 rps with burst 10.
 	// Send 11 rapid requests — the 11th should be rate limited.
-	body := []byte(`{"encrypted":"dGVzdA","iv":"MTIzNDU2Nzg5MDEy","views":1,"hours":24}`)
+	body := []byte(`{"encrypted":"dGVzdA","iv":"MTIzNDU2Nzg5MDEy","views":1,"minutes":1440}`)
 	for i := 0; i < 10; i++ {
 		req := httptest.NewRequest("POST", "/api/secrets", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

@@ -92,7 +92,7 @@ func newSSRFSafeClient(timeout time.Duration, allowPrivate bool) *http.Client {
 type CreateSecretInput struct {
 	Content string `json:"content" jsonschema:"The plaintext secret to encrypt and share. Maximum 500KB."`
 	Views   int    `json:"views,omitempty" jsonschema:"Maximum number of views before the secret is permanently deleted. Default 1 (single-use). Range: 1-100."`
-	Hours   int    `json:"hours,omitempty" jsonschema:"Hours until the secret expires and is permanently deleted regardless of remaining views. Default 24. Range: 1-720 (30 days)."`
+	Minutes int    `json:"minutes,omitempty" jsonschema:"Minutes until the secret expires and is permanently deleted regardless of remaining views. Default 1440 (24 hours). Range: 1-43200 (30 days)."`
 }
 
 type ReadSecretInput struct {
@@ -113,6 +113,21 @@ type Options struct {
 	// AllowPrivateIPs disables SSRF protection for read_secret.
 	// Only set to true in tests that use local httptest servers.
 	AllowPrivateIPs bool
+}
+
+// isOwnServer checks whether urlOrigin (e.g. "http://localhost:3000") matches
+// the base URL of this server, so read_secret can use the local store directly
+// instead of making an HTTP request that would be blocked by SSRF protection.
+func isOwnServer(urlOrigin, base string) bool {
+	if base == "" {
+		return false
+	}
+	bu, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	baseOrigin := fmt.Sprintf("%s://%s", bu.Scheme, bu.Host)
+	return strings.EqualFold(urlOrigin, baseOrigin)
 }
 
 func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, opts ...Options) {
@@ -140,12 +155,12 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 		if views < 1 || views > 100 {
 			return nil, nil, fmt.Errorf("views must be 1-100")
 		}
-		hours := args.Hours
-		if hours == 0 {
-			hours = 24
+		minutes := args.Minutes
+		if minutes == 0 {
+			minutes = 1440 // 24 hours
 		}
-		if hours < 1 || hours > 720 {
-			return nil, nil, fmt.Errorf("hours must be 1-720")
+		if minutes < 1 || minutes > 43200 {
+			return nil, nil, fmt.Errorf("minutes must be 1-43200 (30 days)")
 		}
 
 		ciphertext, iv, key, err := crypto.Encrypt([]byte(args.Content))
@@ -155,7 +170,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 
 		secretID := id.Generate()
 		deleteToken := id.Generate()
-		expiresAt := time.Now().Add(time.Duration(hours) * time.Hour)
+		expiresAt := time.Now().Add(time.Duration(minutes) * time.Minute)
 
 		if err := st.Create(secretID, ciphertext, iv, views, expiresAt, deleteToken); err != nil {
 			return nil, nil, fmt.Errorf("storing secret: %w", err)
@@ -195,44 +210,55 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 			return nil, nil, fmt.Errorf("decoding key: %w", err)
 		}
 
-		// HTTP GET to the target host (could be remote)
-		apiURL := fmt.Sprintf("%s://%s/api/secrets/%s", u.Scheme, u.Host, secretID)
-		resp, err := client.Get(apiURL)
-		if err != nil {
-			if strings.Contains(err.Error(), "private/internal") {
-				return nil, nil, fmt.Errorf("request blocked: cannot connect to private/internal addresses")
+		// Fetch ciphertext: use local store if URL matches our own server,
+		// otherwise make an HTTP request (with SSRF protection).
+		var encBytes, ivBytes []byte
+		urlOrigin := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+		if isOwnServer(urlOrigin, baseURL.Get()) {
+			var storeErr error
+			encBytes, ivBytes, storeErr = st.Get(secretID)
+			if storeErr != nil {
+				return nil, nil, fmt.Errorf("secret not found (expired or already viewed)")
 			}
-			slog.Warn("read_secret fetch failed", "error", err, "host", u.Host)
-			return nil, nil, fmt.Errorf("network error: could not connect to %s", u.Host)
-		}
-		defer resp.Body.Close()
+		} else {
+			apiURL := fmt.Sprintf("%s/api/secrets/%s", urlOrigin, secretID)
+			resp, err := client.Get(apiURL)
+			if err != nil {
+				if strings.Contains(err.Error(), "private/internal") {
+					return nil, nil, fmt.Errorf("request blocked: cannot connect to private/internal addresses")
+				}
+				slog.Warn("read_secret fetch failed", "error", err, "host", u.Host)
+				return nil, nil, fmt.Errorf("network error: could not connect to %s", u.Host)
+			}
+			defer resp.Body.Close()
 
-		if resp.StatusCode == http.StatusNotFound {
-			return nil, nil, fmt.Errorf("secret not found (expired or already viewed)")
-		}
-		if resp.StatusCode != http.StatusOK {
-			slog.Warn("read_secret unexpected status", "status", resp.StatusCode, "host", u.Host)
-			return nil, nil, fmt.Errorf("server returned unexpected status %d", resp.StatusCode)
+			if resp.StatusCode == http.StatusNotFound {
+				return nil, nil, fmt.Errorf("secret not found (expired or already viewed)")
+			}
+			if resp.StatusCode != http.StatusOK {
+				slog.Warn("read_secret unexpected status", "status", resp.StatusCode, "host", u.Host)
+				return nil, nil, fmt.Errorf("server returned unexpected status %d", resp.StatusCode)
+			}
+
+			var data struct {
+				Encrypted string `json:"encrypted"`
+				IV        string `json:"iv"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+				return nil, nil, fmt.Errorf("decoding response: %w", err)
+			}
+
+			encBytes, err = crypto.DecodeKey(data.Encrypted)
+			if err != nil {
+				return nil, nil, fmt.Errorf("decoding ciphertext: %w", err)
+			}
+			ivBytes, err = crypto.DecodeKey(data.IV)
+			if err != nil {
+				return nil, nil, fmt.Errorf("decoding iv: %w", err)
+			}
 		}
 
-		var data struct {
-			Encrypted string `json:"encrypted"`
-			IV        string `json:"iv"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-			return nil, nil, fmt.Errorf("decoding response: %w", err)
-		}
-
-		ciphertext, err := crypto.DecodeKey(data.Encrypted)
-		if err != nil {
-			return nil, nil, fmt.Errorf("decoding ciphertext: %w", err)
-		}
-		ivBytes, err := crypto.DecodeKey(data.IV)
-		if err != nil {
-			return nil, nil, fmt.Errorf("decoding iv: %w", err)
-		}
-
-		plaintext, err := crypto.Decrypt(ciphertext, ivBytes, key)
+		plaintext, err := crypto.Decrypt(encBytes, ivBytes, key)
 		if err != nil {
 			return nil, nil, fmt.Errorf("decrypting: %w", err)
 		}

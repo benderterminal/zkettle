@@ -90,7 +90,7 @@ func TestCLICreateReadRevoke(t *testing.T) {
 	pipeStdin(t, "my test secret\n", func() {
 		createErr = captureStderr(t, func() {
 			createOut = captureStdout(t, func() {
-				err := RunCreate([]string{"--server", ts.URL, "--views", "2", "--hours", "1"})
+				err := RunCreate([]string{"--server", ts.URL, "--views", "2", "--minutes", "60"})
 				if err != nil {
 					t.Fatalf("RunCreate: %v", err)
 				}

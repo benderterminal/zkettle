@@ -32,13 +32,13 @@ func newIntegrationServer(t *testing.T) (*httptest.Server, *store.Store) {
 	return ts, st
 }
 
-func postSecret(t *testing.T, ts *httptest.Server, views, hours int) (id, deleteToken string) {
+func postSecret(t *testing.T, ts *httptest.Server, views, minutes int) (id, deleteToken string) {
 	t.Helper()
 	body := map[string]any{
 		"encrypted": "dGVzdA",
 		"iv":        "MTIzNDU2Nzg5MDEy",
 		"views":     views,
-		"hours":     hours,
+		"minutes":   minutes,
 	}
 	b, _ := json.Marshal(body)
 	resp, err := http.Post(ts.URL+"/api/secrets", "application/json", bytes.NewReader(b))
@@ -159,7 +159,7 @@ func TestIntegrationTTLExpiry(t *testing.T) {
 func TestIntegrationContentTypeEnforcement(t *testing.T) {
 	ts, _ := newIntegrationServer(t)
 
-	body := []byte(`{"encrypted":"dGVzdA","iv":"MTIzNDU2Nzg5MDEy","views":1,"hours":24}`)
+	body := []byte(`{"encrypted":"dGVzdA","iv":"MTIzNDU2Nzg5MDEy","views":1,"minutes":1440}`)
 	resp, err := http.Post(ts.URL+"/api/secrets", "text/plain", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)

@@ -144,7 +144,7 @@ func printQuickStart(baseURL string) {
 	fmt.Fprintf(os.Stderr, "  > open homepage:\n")
 	fmt.Fprintf(os.Stderr, "    %s\n\n", hyperlink(baseURL, baseURL))
 	fmt.Fprintf(os.Stderr, "  > create a secret:\n")
-	fmt.Fprintf(os.Stderr, "    echo \"my secret\" | zkettle create --server %s --views 2 --hours 1\n\n", baseURL)
+	fmt.Fprintf(os.Stderr, "    echo \"my secret\" | zkettle create --server %s --views 2 --minutes 60\n\n", baseURL)
 	fmt.Fprintf(os.Stderr, "  > reveal a secret:\n")
 	fmt.Fprintf(os.Stderr, "    zkettle read <secret-url>\n\n")
 	fmt.Fprintf(os.Stderr, "  > revoke a secret:\n")

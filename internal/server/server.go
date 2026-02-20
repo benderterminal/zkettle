@@ -112,7 +112,7 @@ type createRequest struct {
 	Encrypted string `json:"encrypted"`
 	IV        string `json:"iv"`
 	Views     int    `json:"views"`
-	Hours     int    `json:"hours"`
+	Minutes   int    `json:"minutes"`
 }
 
 type createResponse struct {
@@ -183,17 +183,17 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "views must be 1-100")
 		return
 	}
-	if req.Hours == 0 {
-		req.Hours = 24
+	if req.Minutes == 0 {
+		req.Minutes = 1440 // 24 hours
 	}
-	if req.Hours < 1 || req.Hours > 720 {
-		writeError(w, http.StatusBadRequest, "hours must be 1-720")
+	if req.Minutes < 1 || req.Minutes > 43200 {
+		writeError(w, http.StatusBadRequest, "minutes must be 1-43200 (30 days)")
 		return
 	}
 
 	secretID := id.Generate()
 	deleteToken := id.Generate()
-	expiresAt := time.Now().Add(time.Duration(req.Hours) * time.Hour)
+	expiresAt := time.Now().Add(time.Duration(req.Minutes) * time.Minute)
 
 	if err := s.store.Create(secretID, encBytes, ivBytes, req.Views, expiresAt, deleteToken); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to store secret")

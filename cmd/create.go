@@ -19,12 +19,12 @@ const maxSecretSize = 500 * 1024 // 500KB — matches server-side encrypted limi
 func RunCreate(args []string) error {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	views := fs.Int("views", 1, "Max views before expiry")
-	hours := fs.Int("hours", 24, "Hours until expiry")
+	minutes := fs.Int("minutes", 1440, "Minutes until expiry (default 1440 = 24h)")
 	serverURL := fs.String("server", "http://localhost:3000", "Server URL")
 	jsonOut := fs.Bool("json", false, "Output JSON to stdout")
 	quiet := fs.Bool("quiet", false, "Suppress stderr output")
 	fs.BoolVar(quiet, "q", false, "Suppress stderr output (shorthand)")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(args)); err != nil {
 		return err
 	}
 
@@ -76,7 +76,7 @@ func RunCreate(args []string) error {
 		"encrypted": crypto.EncodeKey(ciphertext),
 		"iv":        crypto.EncodeKey(iv),
 		"views":     *views,
-		"hours":     *hours,
+		"minutes":   *minutes,
 	}
 	b, err := json.Marshal(body)
 	if err != nil {

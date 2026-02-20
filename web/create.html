@@ -107,19 +107,36 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
   filter:invert(1);
   cursor:pointer;
 }
-.btn-now{
+.preset-row{
+  display:flex;
+  gap:.4rem;
+  margin-top:.4rem;
+}
+.preset-btn{
   background:#222;
-  color:#9DED9D;
+  color:#b0b0b0;
   border:1px solid #333;
   border-radius:4px;
-  padding:.4rem .6rem;
+  padding:.45rem .75rem;
   font-family:inherit;
-  font-size:.7rem;
+  font-size:.75rem;
   cursor:pointer;
   white-space:nowrap;
-  transition:background .15s;
+  transition:background .15s, border-color .15s, color .15s;
+  flex:1;
+  text-align:center;
 }
-.btn-now:hover{background:#2a2a2a}
+.preset-btn:hover{background:#2a2a2a}
+.preset-btn.active{
+  background:#9DED9D;
+  color:#0a0a0a;
+  border-color:#9DED9D;
+  font-weight:600;
+}
+.custom-row{
+  margin-top:.5rem;
+  display:none;
+}
 .btn-primary{
   display:block;
   width:100%;
@@ -266,16 +283,27 @@ noscript{
 
   <div class="options">
     <div class="option">
-      <label for="views-select">max views</label>
-      <input type="number" id="views-select" min="1" max="100" value="1">
+      <label>max views</label>
+      <div class="preset-row" id="views-presets">
+        <button type="button" class="preset-btn active" data-val="1">1</button>
+        <button type="button" class="preset-btn" data-val="3">3</button>
+        <button type="button" class="preset-btn" data-val="5">5</button>
+        <button type="button" class="preset-btn" id="views-custom-btn">Custom</button>
+      </div>
+      <div class="custom-row" id="views-custom-row">
+        <input type="number" id="views-custom-input" min="1" max="100" value="10">
+      </div>
     </div>
     <div class="option">
-      <label for="ttl-select">expires at</label>
-      <div style="display:flex;gap:.4rem;align-items:stretch">
-        <input type="datetime-local" id="ttl-select" style="flex:1">
-        <button type="button" class="btn-now" id="btn-5m">+5m</button>
-        <button type="button" class="btn-now" id="btn-1h">+1h</button>
-        <button type="button" class="btn-now" id="btn-24h">+24h</button>
+      <label>expires in</label>
+      <div class="preset-row" id="expiry-presets">
+        <button type="button" class="preset-btn active" data-minutes="5">5 min</button>
+        <button type="button" class="preset-btn" data-minutes="30">30 min</button>
+        <button type="button" class="preset-btn" data-minutes="60">1 hr</button>
+        <button type="button" class="preset-btn" id="expiry-custom-btn">Custom</button>
+      </div>
+      <div class="custom-row" id="expiry-custom-row">
+        <input type="datetime-local" id="expiry-custom-input">
       </div>
     </div>
   </div>
@@ -314,36 +342,77 @@ noscript{
 var currentSecretID='';
 var currentDeleteToken='';
 
-// Initialize datetime input on page load
-function initForm(){
-  var now=new Date();
-  var oneHourFromNow=new Date(now.getTime()+3600000);
-  var thirtyDaysFromNow=new Date(now.getTime()+(30*24*3600000));
+// Track active preset values
+var activeViews=1;
+var activeExpiryMinutes=5;
+var viewsCustomMode=false;
+var expiryCustomMode=false;
 
-  // Format dates for datetime-local input (YYYY-MM-DDThh:mm)
-  function formatDateTime(date){
-    var year=date.getFullYear();
-    var month=String(date.getMonth()+1).padStart(2,'0');
-    var day=String(date.getDate()).padStart(2,'0');
-    var hours=String(date.getHours()).padStart(2,'0');
-    var minutes=String(date.getMinutes()).padStart(2,'0');
-    return year+'-'+month+'-'+day+'T'+hours+':'+minutes;
-  }
-
-  var ttlInput=document.getElementById('ttl-select');
-  ttlInput.value=formatDateTime(oneHourFromNow);
-  ttlInput.min=formatDateTime(now);
-  ttlInput.max=formatDateTime(thirtyDaysFromNow);
+function formatDateTime(date){
+  var year=date.getFullYear();
+  var month=String(date.getMonth()+1).padStart(2,'0');
+  var day=String(date.getDate()).padStart(2,'0');
+  var hours=String(date.getHours()).padStart(2,'0');
+  var minutes=String(date.getMinutes()).padStart(2,'0');
+  return year+'-'+month+'-'+day+'T'+hours+':'+minutes;
 }
 
-function setOffset(minutes){
-  var d=new Date(Date.now()+minutes*60000);
-  var year=d.getFullYear();
-  var month=String(d.getMonth()+1).padStart(2,'0');
-  var day=String(d.getDate()).padStart(2,'0');
-  var hours=String(d.getHours()).padStart(2,'0');
-  var mins=String(d.getMinutes()).padStart(2,'0');
-  document.getElementById('ttl-select').value=year+'-'+month+'-'+day+'T'+hours+':'+mins;
+function selectViewsPreset(val){
+  viewsCustomMode=false;
+  activeViews=val;
+  var btns=document.querySelectorAll('#views-presets .preset-btn');
+  btns.forEach(function(b){b.classList.remove('active')});
+  var clicked=document.querySelector('#views-presets .preset-btn[data-val="'+val+'"]');
+  if(clicked) clicked.classList.add('active');
+  document.getElementById('views-custom-row').style.display='none';
+}
+
+function showCustomViews(){
+  viewsCustomMode=true;
+  var btns=document.querySelectorAll('#views-presets .preset-btn');
+  btns.forEach(function(b){b.classList.remove('active')});
+  document.getElementById('views-custom-btn').classList.add('active');
+  document.getElementById('views-custom-row').style.display='block';
+  document.getElementById('views-custom-input').focus();
+}
+
+function selectExpiryPreset(minutes){
+  expiryCustomMode=false;
+  activeExpiryMinutes=minutes;
+  var btns=document.querySelectorAll('#expiry-presets .preset-btn');
+  btns.forEach(function(b){b.classList.remove('active')});
+  var clicked=document.querySelector('#expiry-presets .preset-btn[data-minutes="'+minutes+'"]');
+  if(clicked) clicked.classList.add('active');
+  document.getElementById('expiry-custom-row').style.display='none';
+}
+
+function showCustomExpiry(){
+  expiryCustomMode=true;
+  var btns=document.querySelectorAll('#expiry-presets .preset-btn');
+  btns.forEach(function(b){b.classList.remove('active')});
+  document.getElementById('expiry-custom-btn').classList.add('active');
+  document.getElementById('expiry-custom-row').style.display='block';
+  // Pre-fill with current time + 1hr
+  var input=document.getElementById('expiry-custom-input');
+  var now=new Date();
+  input.value=formatDateTime(new Date(now.getTime()+3600000));
+  input.min=formatDateTime(now);
+  input.max=formatDateTime(new Date(now.getTime()+(30*24*3600000)));
+  input.focus();
+}
+
+function initForm(){
+  // Wire up views preset buttons
+  document.querySelectorAll('#views-presets .preset-btn[data-val]').forEach(function(btn){
+    btn.addEventListener('click',function(){selectViewsPreset(parseInt(btn.dataset.val))});
+  });
+  document.getElementById('views-custom-btn').addEventListener('click',showCustomViews);
+
+  // Wire up expiry preset buttons
+  document.querySelectorAll('#expiry-presets .preset-btn[data-minutes]').forEach(function(btn){
+    btn.addEventListener('click',function(){selectExpiryPreset(parseInt(btn.dataset.minutes))});
+  });
+  document.getElementById('expiry-custom-btn').addEventListener('click',showCustomExpiry);
 }
 
 var MAX_BYTES=500*1024;
@@ -482,13 +551,21 @@ async function createSecret(){
     // 4. Export the key as raw bytes
     var rawKey=await crypto.subtle.exportKey('raw',key);
 
-    // 5. POST to the API
-    var viewsSelect=document.getElementById('views-select');
-    var ttlSelect=document.getElementById('ttl-select');
+    // 5. POST to the API — read from presets or custom inputs
+    var views;
+    if(viewsCustomMode){
+      views=parseInt(document.getElementById('views-custom-input').value)||1;
+    }else{
+      views=activeViews;
+    }
 
-    // Calculate hours from datetime difference
-    var expiryTime=new Date(ttlSelect.value);
-    var hoursUntilExpiry=Math.max(1,Math.ceil((expiryTime-new Date())/3600000));
+    var minutes;
+    if(expiryCustomMode){
+      var expiryTime=new Date(document.getElementById('expiry-custom-input').value);
+      minutes=Math.max(1,Math.ceil((expiryTime-new Date())/60000));
+    }else{
+      minutes=activeExpiryMinutes;
+    }
 
     var resp=await fetch('/api/secrets',{
       method:'POST',
@@ -496,8 +573,8 @@ async function createSecret(){
       body:JSON.stringify({
         encrypted:b64urlEncode(ciphertext),
         iv:b64urlEncode(iv),
-        views:parseInt(viewsSelect.value),
-        hours:hoursUntilExpiry
+        views:views,
+        minutes:minutes
       })
     });
 
@@ -604,14 +681,14 @@ function resetForm(){
   document.getElementById('secret-input').value='';
   document.getElementById('encrypt-btn').disabled=false;
   document.getElementById('encrypt-btn').textContent='Encrypt & Share';
+  // Reset presets to defaults
+  selectViewsPreset(1);
+  selectExpiryPreset(5);
   hideError();
   renderRecent();
 }
 
 // Wire up event listeners (no inline handlers — CSP nonce requires this)
-document.getElementById('btn-5m').addEventListener('click',function(){setOffset(5)});
-document.getElementById('btn-1h').addEventListener('click',function(){setOffset(60)});
-document.getElementById('btn-24h').addEventListener('click',function(){setOffset(1440)});
 document.getElementById('encrypt-btn').addEventListener('click',createSecret);
 document.getElementById('copy-btn').addEventListener('click',copyLink);
 document.getElementById('revoke-btn').addEventListener('click',revokeSecret);

@@ -14,7 +14,7 @@ func RunRevoke(args []string) error {
 	fs := flag.NewFlagSet("revoke", flag.ExitOnError)
 	serverURL := fs.String("server", "http://localhost:3000", "Server URL")
 	token := fs.String("token", "", "Delete token (from create output)")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(args)); err != nil {
 		return err
 	}
 

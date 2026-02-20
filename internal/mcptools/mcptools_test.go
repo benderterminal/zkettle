@@ -102,7 +102,7 @@ func TestCreateSecretReturnURL(t *testing.T) {
 	result := callTool(t, mcpSrv, "create_secret", map[string]any{
 		"content": "my secret data",
 		"views":   1,
-		"hours":   24,
+		"minutes": 1440,
 	})
 
 	url, deleteToken := parseCreateResult(t, result)

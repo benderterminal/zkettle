@@ -15,7 +15,7 @@ import (
 
 func RunRead(args []string) error {
 	fs := flag.NewFlagSet("read", flag.ExitOnError)
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(args)); err != nil {
 		return err
 	}
 
