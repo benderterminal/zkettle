@@ -313,8 +313,10 @@ func (s *Server) servePage(w http.ResponseWriter, name string) {
 	html := strings.ReplaceAll(string(data), "<script>", fmt.Sprintf(`<script nonce="%s">`, nonce))
 	html = strings.ReplaceAll(html, "<style>", fmt.Sprintf(`<style nonce="%s">`, nonce))
 
-	// Set CSP header with nonce for both script-src and style-src
-	csp := fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'; style-src 'nonce-%s'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'self'", nonce, nonce)
+	// Set CSP header: nonce for script-src, unsafe-inline for style-src
+	// (inline style attributes set via JS are blocked by nonce-only style-src;
+	// unsafe-inline for styles is safe — CSS cannot execute scripts)
+	csp := fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'; style-src 'nonce-%s' 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'self'", nonce, nonce)
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(html))
