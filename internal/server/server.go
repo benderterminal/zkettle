@@ -239,6 +239,34 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid secret ID format")
 		return
 	}
+
+	// Check recipient gating before consuming a view.
+	meta, err := s.store.GetMeta(secretID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "secret not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to retrieve secret")
+		return
+	}
+
+	if meta.Recipient != nil && *meta.Recipient != "" {
+		if s.cfg.AuthFunc == nil {
+			// Self-hosted instance with no auth — can't verify recipient
+			writeError(w, http.StatusForbidden, "this secret requires authentication on a hosted instance")
+			return
+		}
+		// Auth is available — authenticate the request and store identity in context.
+		// The hosted server's AuthFunc handles the actual recipient matching.
+		identity, authErr := s.cfg.AuthFunc(r)
+		if authErr != nil {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		r = r.WithContext(auth.ContextWithIdentity(r.Context(), identity))
+	}
+
 	encrypted, iv, err := s.store.Get(secretID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
