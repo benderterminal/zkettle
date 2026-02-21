@@ -468,3 +468,113 @@ func TestSetUserVersion_HostedRange(t *testing.T) {
 		t.Fatalf("user_version = %d, want 100", v)
 	}
 }
+
+// --- L12-06: Recipient and creator column tests ---
+
+func strPtr(s string) *string { return &s }
+
+func TestCreateWithCreatorID(t *testing.T) {
+	s := newTestStore(t)
+	opts := CreateOptions{CreatorID: strPtr("user-123")}
+	if err := s.Create("c1", []byte("data"), []byte("123456789012"), 1, time.Now().Add(time.Hour), "tok", opts); err != nil {
+		t.Fatalf("Create with creator_id: %v", err)
+	}
+	meta, err := s.GetMeta("c1")
+	if err != nil {
+		t.Fatalf("GetMeta: %v", err)
+	}
+	if meta.CreatorID == nil || *meta.CreatorID != "user-123" {
+		t.Fatalf("creator_id: got %v, want user-123", meta.CreatorID)
+	}
+}
+
+func TestCreateWithRecipient(t *testing.T) {
+	s := newTestStore(t)
+	opts := CreateOptions{
+		Recipient:     strPtr("alice@example.com"),
+		RecipientType: strPtr("email"),
+	}
+	if err := s.Create("r1", []byte("data"), []byte("123456789012"), 1, time.Now().Add(time.Hour), "tok", opts); err != nil {
+		t.Fatalf("Create with recipient: %v", err)
+	}
+	meta, err := s.GetMeta("r1")
+	if err != nil {
+		t.Fatalf("GetMeta: %v", err)
+	}
+	if meta.Recipient == nil || *meta.Recipient != "alice@example.com" {
+		t.Fatalf("recipient: got %v, want alice@example.com", meta.Recipient)
+	}
+	if meta.RecipientType == nil || *meta.RecipientType != "email" {
+		t.Fatalf("recipient_type: got %v, want email", meta.RecipientType)
+	}
+}
+
+func TestCreateWithWalletRecipient(t *testing.T) {
+	s := newTestStore(t)
+	opts := CreateOptions{
+		Recipient:     strPtr("0xAbCdEf1234567890AbCdEf1234567890AbCdEf12"),
+		RecipientType: strPtr("wallet"),
+	}
+	if err := s.Create("w1", []byte("data"), []byte("123456789012"), 1, time.Now().Add(time.Hour), "tok", opts); err != nil {
+		t.Fatalf("Create with wallet recipient: %v", err)
+	}
+	meta, err := s.GetMeta("w1")
+	if err != nil {
+		t.Fatalf("GetMeta: %v", err)
+	}
+	if meta.RecipientType == nil || *meta.RecipientType != "wallet" {
+		t.Fatalf("recipient_type: got %v, want wallet", meta.RecipientType)
+	}
+}
+
+func TestCreateWithoutOptionsBackwardsCompatible(t *testing.T) {
+	s := newTestStore(t)
+	// No options — columns should be NULL
+	if err := s.Create("bc1", []byte("data"), []byte("123456789012"), 1, time.Now().Add(time.Hour), "tok"); err != nil {
+		t.Fatalf("Create without options: %v", err)
+	}
+	meta, err := s.GetMeta("bc1")
+	if err != nil {
+		t.Fatalf("GetMeta: %v", err)
+	}
+	if meta.CreatorID != nil {
+		t.Fatalf("creator_id should be nil, got %v", meta.CreatorID)
+	}
+	if meta.Recipient != nil {
+		t.Fatalf("recipient should be nil, got %v", meta.Recipient)
+	}
+	if meta.RecipientType != nil {
+		t.Fatalf("recipient_type should be nil, got %v", meta.RecipientType)
+	}
+}
+
+func TestGetMetaNotFound(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.GetMeta("nonexistent")
+	if err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetStillWorksWithNewColumns(t *testing.T) {
+	s := newTestStore(t)
+	opts := CreateOptions{
+		CreatorID:     strPtr("user-1"),
+		Recipient:     strPtr("bob@example.com"),
+		RecipientType: strPtr("email"),
+	}
+	if err := s.Create("g1", []byte("encrypted"), []byte("123456789012"), 1, time.Now().Add(time.Hour), "tok", opts); err != nil {
+		t.Fatal(err)
+	}
+	// Get should still return encrypted+iv without breaking
+	enc, iv, err := s.Get("g1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if string(enc) != "encrypted" {
+		t.Fatalf("encrypted: got %q, want %q", enc, "encrypted")
+	}
+	if string(iv) != "123456789012" {
+		t.Fatalf("iv: got %q", iv)
+	}
+}

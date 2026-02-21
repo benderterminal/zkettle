@@ -26,10 +26,13 @@ var ErrExpired = errors.New("secret expired or consumed")
 var ErrUnauthorized = errors.New("unauthorized: invalid delete token")
 
 type SecretMeta struct {
-	ID        string
-	ViewsLeft int
-	ExpiresAt time.Time
-	CreatedAt time.Time
+	ID            string
+	ViewsLeft     int
+	ExpiresAt     time.Time
+	CreatedAt     time.Time
+	CreatorID     *string
+	Recipient     *string
+	RecipientType *string
 }
 
 type Store struct {
@@ -80,8 +83,14 @@ func New(dbPath string) (*Store, error) {
 	// Migrate: add delete_token column if missing (pre-existing databases)
 	db.Exec(`ALTER TABLE secrets ADD COLUMN delete_token TEXT NOT NULL DEFAULT ''`)
 
+	// Migrate: add recipient gating and creator columns (v0.2.0)
+	db.Exec(`ALTER TABLE secrets ADD COLUMN creator_id TEXT`)
+	db.Exec(`ALTER TABLE secrets ADD COLUMN recipient TEXT`)
+	db.Exec(`ALTER TABLE secrets ADD COLUMN recipient_type TEXT`)
+
 	// Index for efficient expiry cleanup queries
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_expires ON secrets(expires_at)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_creator ON secrets(creator_id)`)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Store{db: db, ctx: ctx, cancel: cancel}
@@ -145,10 +154,24 @@ func (s *Store) scheduleNextCleanup() {
 	})
 }
 
-func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time, deleteToken string) error {
+// CreateOptions holds optional fields for secret creation.
+// All fields are pointers so nil means "not set" (stored as NULL).
+type CreateOptions struct {
+	CreatorID     *string
+	Recipient     *string
+	RecipientType *string // "email" or "wallet"
+}
+
+func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time, deleteToken string, opts ...CreateOptions) error {
+	var opt CreateOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
 	_, err := s.db.Exec(
-		`INSERT INTO secrets (id, encrypted, iv, views_left, expires_at, delete_token) VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO secrets (id, encrypted, iv, views_left, expires_at, delete_token, creator_id, recipient, recipient_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, encrypted, iv, viewsLeft, expiresAt.Unix(), hex.EncodeToString(hashToken(deleteToken)),
+		opt.CreatorID, opt.Recipient, opt.RecipientType,
 	)
 	if err != nil {
 		return err
@@ -179,6 +202,27 @@ func (s *Store) Get(id string) (encrypted, iv []byte, err error) {
 	s.db.Exec(`DELETE FROM secrets WHERE id = ? AND views_left <= 0`, id)
 
 	return encrypted, iv, nil
+}
+
+// GetMeta returns metadata about a secret without consuming a view.
+// Used by auth-aware handlers to check recipient before releasing ciphertext.
+func (s *Store) GetMeta(id string) (*SecretMeta, error) {
+	var m SecretMeta
+	var expiresUnix, createdUnix int64
+	err := s.db.QueryRow(
+		`SELECT id, views_left, expires_at, created_at, creator_id, recipient, recipient_type
+		FROM secrets WHERE id = ? AND expires_at > unixepoch() AND views_left > 0`,
+		id,
+	).Scan(&m.ID, &m.ViewsLeft, &expiresUnix, &createdUnix, &m.CreatorID, &m.Recipient, &m.RecipientType)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	m.ExpiresAt = time.Unix(expiresUnix, 0)
+	m.CreatedAt = time.Unix(createdUnix, 0)
+	return &m, nil
 }
 
 func (s *Store) Delete(id string, deleteToken string) error {
