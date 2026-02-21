@@ -2,16 +2,26 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
+// hashToken returns the SHA-256 hex digest of a delete token.
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
 var ErrNotFound = errors.New("secret not found")
 var ErrExpired = errors.New("secret expired or consumed")
+var ErrUnauthorized = errors.New("unauthorized: invalid delete token")
 
 type SecretMeta struct {
 	ID        string
@@ -22,8 +32,12 @@ type SecretMeta struct {
 
 type Store struct {
 	db     *sql.DB
+	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	mu    sync.Mutex
+	timer *time.Timer
 }
 
 func New(dbPath string) (*Store, error) {
@@ -38,6 +52,7 @@ func New(dbPath string) (*Store, error) {
 		"PRAGMA busy_timeout = 5000",
 		"PRAGMA synchronous = NORMAL",
 		"PRAGMA foreign_keys = ON",
+		"PRAGMA secure_delete = ON",
 	} {
 		if _, err := db.Exec(pragma); err != nil {
 			db.Close()
@@ -62,37 +77,84 @@ func New(dbPath string) (*Store, error) {
 	// Migrate: add delete_token column if missing (pre-existing databases)
 	db.Exec(`ALTER TABLE secrets ADD COLUMN delete_token TEXT NOT NULL DEFAULT ''`)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	s := &Store{db: db, cancel: cancel}
+	// Index for efficient expiry cleanup queries
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_expires ON secrets(expires_at)`)
 
-	// Run cleanup once at startup
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Store{db: db, ctx: ctx, cancel: cancel}
+
+	// Run cleanup once at startup, then schedule next
 	s.Cleanup()
 
-	// Start periodic cleanup goroutine
+	// Background goroutine waits for context cancellation to stop the timer
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.Cleanup()
-			}
+		<-ctx.Done()
+		s.mu.Lock()
+		if s.timer != nil {
+			s.timer.Stop()
 		}
+		s.mu.Unlock()
 	}()
 
+	s.scheduleNextCleanup()
+
 	return s, nil
+}
+
+// scheduleNextCleanup queries the nearest expiry and sets a timer to clean up at that time.
+// The DB query runs outside the mutex; only timer operations are locked.
+// Safe to call after Close() — returns immediately if the context is cancelled.
+func (s *Store) scheduleNextCleanup() {
+	if s.ctx.Err() != nil {
+		return // store is closed
+	}
+
+	var nextExpiry sql.NullInt64
+	err := s.db.QueryRow(`SELECT MIN(expires_at) FROM secrets WHERE expires_at > unixepoch()`).Scan(&nextExpiry)
+	if err != nil || !nextExpiry.Valid {
+		return // no secrets to clean up
+	}
+
+	delay := time.Until(time.Unix(nextExpiry.Int64, 0))
+	if delay < 0 {
+		delay = 0
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Double-check after acquiring lock in case Close() raced
+	if s.ctx.Err() != nil {
+		return
+	}
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+	s.timer = time.AfterFunc(delay, func() {
+		if s.ctx.Err() != nil {
+			return
+		}
+		if _, err := s.Cleanup(); err != nil {
+			slog.Error("store cleanup failed", "error", err)
+		}
+		s.scheduleNextCleanup()
+	})
 }
 
 func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time, deleteToken string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO secrets (id, encrypted, iv, views_left, expires_at, delete_token) VALUES (?, ?, ?, ?, ?, ?)`,
-		id, encrypted, iv, viewsLeft, expiresAt.Unix(), deleteToken,
+		id, encrypted, iv, viewsLeft, expiresAt.Unix(), hashToken(deleteToken),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Reschedule cleanup if this new secret may expire sooner than the current timer
+	s.scheduleNextCleanup()
+
+	return nil
 }
 
 func (s *Store) Get(id string) (encrypted, iv []byte, err error) {
@@ -116,24 +178,20 @@ func (s *Store) Get(id string) (encrypted, iv []byte, err error) {
 	return encrypted, iv, nil
 }
 
-var ErrForbidden = errors.New("invalid delete token")
-
 func (s *Store) Delete(id string, deleteToken string) error {
-	res, err := s.db.Exec(`DELETE FROM secrets WHERE id = ? AND delete_token = ?`, id, deleteToken)
+	var storedHash string
+	err := s.db.QueryRow(`SELECT delete_token FROM secrets WHERE id = ?`, id).Scan(&storedHash)
 	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		// Check if the secret exists at all to distinguish not-found from wrong token
-		var exists int
-		err := s.db.QueryRow(`SELECT 1 FROM secrets WHERE id = ?`, id).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
-		return ErrForbidden
+		return err
 	}
-	return nil
+	if storedHash != hashToken(deleteToken) {
+		return ErrUnauthorized
+	}
+	_, err = s.db.Exec(`DELETE FROM secrets WHERE id = ?`, id)
+	return err
 }
 
 func (s *Store) List() ([]SecretMeta, error) {
@@ -176,6 +234,10 @@ func (s *Store) Status(id string) error {
 		return ErrExpired
 	}
 	return nil
+}
+
+func (s *Store) Ping() error {
+	return s.db.Ping()
 }
 
 func (s *Store) Cleanup() (int, error) {

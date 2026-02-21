@@ -1,8 +1,11 @@
 PLAN.md
 SUMMARY.md
 plans/
+docs/security-model.md
 dist/
 *.db
 *.db-wal
 *.db-shm
 data/
+.DS_Store
+/zkettle

@@ -3,6 +3,9 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"os"
+
+	"github.com/mattn/go-isatty"
 )
 
 const bannerShort = `
@@ -31,6 +34,10 @@ func PrintBanner(w io.Writer) {
 }
 
 // PrintBannerFull writes the full zKettle logo to the given writer.
+// Suppressed when the writer is not a terminal (e.g. piped or redirected).
 func PrintBannerFull(w io.Writer) {
+	if f, ok := w.(*os.File); ok && !isatty.IsTerminal(f.Fd()) && !isatty.IsCygwinTerminal(f.Fd()) {
+		return
+	}
 	fmt.Fprint(w, bannerFull)
 }

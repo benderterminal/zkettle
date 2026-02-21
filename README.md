@@ -12,7 +12,7 @@ make build
 ./dist/zkettle serve --port 3000
 
 # Create a secret (in another terminal)
-./dist/zkettle create "my secret password" --views 1 --hours 24
+echo "my secret password" | ./dist/zkettle create --views 1 --minutes 60
 # → http://localhost:3000/s/abc123#key
 
 # Read a secret
@@ -60,7 +60,7 @@ zkettle serve [options]     Start the HTTP server
 
 zkettle create [options] <plaintext>   Encrypt and store a secret
   --views 1                 Max views before auto-delete
-  --hours 24                Hours until expiry
+  --minutes 1440            Minutes until expiry (default 24h)
   --server http://localhost:3000   Server URL
 
 zkettle read <url>          Retrieve and decrypt a secret (quote the URL)
@@ -87,7 +87,7 @@ Create a secret.
   "encrypted": "<base64url ciphertext>",
   "iv": "<base64url 12-byte IV>",
   "views": 1,
-  "hours": 24
+  "minutes": 1440
 }
 ```
 

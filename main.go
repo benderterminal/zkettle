@@ -11,7 +11,11 @@ import (
 //go:embed web
 var webFS embed.FS
 
-var version = "dev"
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -32,7 +36,7 @@ func main() {
 	case "revoke":
 		err = cmd.RunRevoke(os.Args[2:])
 	case "version":
-		fmt.Println("zkettle", version)
+		fmt.Printf("zkettle %s (commit %s, built %s)\n", version, commit, date)
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -53,7 +57,7 @@ func printUsage() {
 
 Commands:
   serve     Start the HTTP server
-  create    Encrypt and store a secret
+  create    Encrypt and store a secret (reads from stdin)
   read      Retrieve and decrypt a secret
   revoke    Delete a secret
   mcp       Start MCP server (stdio) with HTTP backend

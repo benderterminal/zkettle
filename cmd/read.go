@@ -10,11 +10,12 @@ import (
 	"strings"
 
 	"github.com/taw/zkettle/internal/crypto"
+	"github.com/taw/zkettle/internal/id"
 )
 
 func RunRead(args []string) error {
 	fs := flag.NewFlagSet("read", flag.ExitOnError)
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(args)); err != nil {
 		return err
 	}
 
@@ -33,7 +34,10 @@ func RunRead(args []string) error {
 	if len(parts) != 2 || parts[1] == "" {
 		return fmt.Errorf("invalid secret URL: expected /s/{id} in path")
 	}
-	id := parts[1]
+	secretID := parts[1]
+	if !id.Valid(secretID) {
+		return fmt.Errorf("invalid secret ID format")
+	}
 
 	// Extract key from fragment
 	keyStr := u.Fragment
@@ -46,10 +50,10 @@ func RunRead(args []string) error {
 	}
 
 	// Build API URL
-	apiURL := fmt.Sprintf("%s://%s/api/secrets/%s", u.Scheme, u.Host, id)
-	resp, err := http.Get(apiURL)
+	apiURL := fmt.Sprintf("%s://%s/api/secrets/%s", u.Scheme, u.Host, secretID)
+	resp, err := httpClient.Get(apiURL)
 	if err != nil {
-		return fmt.Errorf("fetching secret: %w", err)
+		return connError("fetching secret", err)
 	}
 	defer resp.Body.Close()
 
@@ -57,7 +61,7 @@ func RunRead(args []string) error {
 		return fmt.Errorf("secret not found (expired or already viewed)")
 	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return fmt.Errorf("server returned %d: %s", resp.StatusCode, string(body))
 	}
 

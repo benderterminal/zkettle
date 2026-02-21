@@ -43,7 +43,7 @@ func setupTestEnv(t *testing.T) (*mcp.Server, *store.Store, string) {
 		Version: "test",
 	}, nil)
 
-	RegisterTools(mcpSrv, st, bu)
+	RegisterTools(mcpSrv, st, bu, Options{AllowPrivateIPs: true})
 
 	return mcpSrv, st, ts.URL
 }
@@ -102,7 +102,7 @@ func TestCreateSecretReturnURL(t *testing.T) {
 	result := callTool(t, mcpSrv, "create_secret", map[string]any{
 		"content": "my secret data",
 		"views":   1,
-		"hours":   24,
+		"minutes": 1440,
 	})
 
 	url, deleteToken := parseCreateResult(t, result)

@@ -1,39 +1,81 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/taw/zkettle/internal/baseurl"
+	"github.com/taw/zkettle/internal/id"
 	"github.com/taw/zkettle/internal/store"
 )
 
 const maxBodySize = 1024 * 1024 // 1MB
 
 type Config struct {
-	BaseURL *baseurl.BaseURL
+	BaseURL     *baseurl.BaseURL
+	TrustProxy  bool
+	ProxyDepth  int
+	CORSOrigins []string
+	ReadRPS     float64
+	ReadBurst   int
+	WriteRPS    float64
+	WriteBurst  int
+}
+
+// BuildHandler composes the middleware chain around the given handler.
+// Zero-value rate limit fields default to 120/120 read and 60/60 write.
+func BuildHandler(ctx context.Context, cfg Config, handler http.Handler) http.Handler {
+	readRPS := cfg.ReadRPS
+	if readRPS == 0 {
+		readRPS = 120
+	}
+	readBurst := cfg.ReadBurst
+	if readBurst == 0 {
+		readBurst = 120
+	}
+	writeRPS := cfg.WriteRPS
+	if writeRPS == 0 {
+		writeRPS = 60
+	}
+	writeBurst := cfg.WriteBurst
+	if writeBurst == 0 {
+		writeBurst = 60
+	}
+	proxyDepth := cfg.ProxyDepth
+	if proxyDepth == 0 {
+		proxyDepth = 1
+	}
+
+	h := handler
+	h = RateLimiter(ctx, readRPS, readBurst, writeRPS, writeBurst, cfg.TrustProxy, proxyDepth)(h)
+	h = CORSMiddleware(cfg.CORSOrigins)(h)
+	h = RequestLogger(cfg.TrustProxy, proxyDepth)(h)
+	return h
 }
 
 type Server struct {
-	cfg   Config
-	store *store.Store
-	webFS fs.FS
-	mux   *http.ServeMux
+	cfg           Config
+	store         *store.Store
+	webFS         fs.FS
+	mux           *http.ServeMux
+	createLimiter *ipRateLimiter
 }
 
 func New(cfg Config, st *store.Store, webFS fs.FS) *Server {
 	s := &Server{
-		cfg:   cfg,
-		store: st,
-		webFS: webFS,
-		mux:   http.NewServeMux(),
+		cfg:           cfg,
+		store:         st,
+		webFS:         webFS,
+		mux:           http.NewServeMux(),
+		createLimiter: newIPRateLimiter(context.Background(), 10, 10, 10000),
 	}
 	s.mux.HandleFunc("GET /{$}", s.handleLanding)
 	s.mux.HandleFunc("GET /create", s.handleCreatePage)
@@ -47,14 +89,21 @@ func New(cfg Config, st *store.Store, webFS fs.FS) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return securityHeaders(s.mux)
+	return s.securityHeaders(s.mux)
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		if r.TLS != nil || (s.cfg.TrustProxy && r.Header.Get("X-Forwarded-Proto") == "https") {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		// Prevent caching of API responses
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -63,7 +112,7 @@ type createRequest struct {
 	Encrypted string `json:"encrypted"`
 	IV        string `json:"iv"`
 	Views     int    `json:"views"`
-	Hours     int    `json:"hours"`
+	Minutes   int    `json:"minutes"`
 }
 
 type createResponse struct {
@@ -78,6 +127,18 @@ type getResponse struct {
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r, s.cfg.TrustProxy, s.cfg.ProxyDepth)
+	if !s.createLimiter.allow(ip) {
+		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req createRequest
@@ -122,19 +183,19 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "views must be 1-100")
 		return
 	}
-	if req.Hours == 0 {
-		req.Hours = 24
+	if req.Minutes == 0 {
+		req.Minutes = 1440 // 24 hours
 	}
-	if req.Hours < 1 || req.Hours > 720 {
-		writeError(w, http.StatusBadRequest, "hours must be 1-720")
+	if req.Minutes < 1 || req.Minutes > 43200 {
+		writeError(w, http.StatusBadRequest, "minutes must be 1-43200 (30 days)")
 		return
 	}
 
-	id := generateID()
-	deleteToken := generateID()
-	expiresAt := time.Now().Add(time.Duration(req.Hours) * time.Hour)
+	secretID := id.Generate()
+	deleteToken := id.Generate()
+	expiresAt := time.Now().Add(time.Duration(req.Minutes) * time.Minute)
 
-	if err := s.store.Create(id, encBytes, ivBytes, req.Views, expiresAt, deleteToken); err != nil {
+	if err := s.store.Create(secretID, encBytes, ivBytes, req.Views, expiresAt, deleteToken); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to store secret")
 		return
 	}
@@ -142,15 +203,19 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(createResponse{
-		ID:          id,
+		ID:          secretID,
 		ExpiresAt:   expiresAt.UTC().Format(time.RFC3339),
 		DeleteToken: deleteToken,
 	})
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	encrypted, iv, err := s.store.Get(id)
+	secretID := r.PathValue("id")
+	if !id.Valid(secretID) {
+		writeError(w, http.StatusBadRequest, "invalid secret ID format")
+		return
+	}
+	encrypted, iv, err := s.store.Get(secretID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "secret not found")
@@ -168,7 +233,11 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	secretID := r.PathValue("id")
+	if !id.Valid(secretID) {
+		writeError(w, http.StatusBadRequest, "invalid secret ID format")
+		return
+	}
 
 	token := ""
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
@@ -179,12 +248,12 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.Delete(id, token); err != nil {
+	if err := s.store.Delete(secretID, token); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "secret not found")
 			return
 		}
-		if errors.Is(err, store.ErrForbidden) {
+		if errors.Is(err, store.ErrUnauthorized) {
 			writeError(w, http.StatusForbidden, "invalid delete token")
 			return
 		}
@@ -207,8 +276,12 @@ func (s *Server) handleViewer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	err := s.store.Status(id)
+	secretID := r.PathValue("id")
+	if !id.Valid(secretID) {
+		writeError(w, http.StatusBadRequest, "invalid secret ID format")
+		return
+	}
+	err := s.store.Status(secretID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrExpired) {
 			writeError(w, http.StatusNotFound, "secret not found")
@@ -227,12 +300,35 @@ func (s *Server) servePage(w http.ResponseWriter, name string) {
 		http.Error(w, "page not found", http.StatusInternalServerError)
 		return
 	}
+
+	// Generate a per-request nonce for CSP
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	nonce := base64.StdEncoding.EncodeToString(nonceBytes)
+
+	// Inject nonce into all <script> and <style> tags
+	html := strings.ReplaceAll(string(data), "<script>", fmt.Sprintf(`<script nonce="%s">`, nonce))
+	html = strings.ReplaceAll(html, "<style>", fmt.Sprintf(`<style nonce="%s">`, nonce))
+
+	// Set CSP header: nonce for script-src, unsafe-inline for style-src
+	// (inline style attributes set via JS are blocked by nonce-only style-src;
+	// unsafe-inline for styles is safe — CSS cannot execute scripts)
+	csp := fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'; style-src 'nonce-%s' 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'self'", nonce, nonce)
+	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(data)
+	w.Write([]byte(html))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if err := s.store.Ping(); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"status":"error"}`))
+		return
+	}
 	w.Write([]byte(`{"status":"ok"}`))
 }
 
@@ -240,12 +336,4 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
-}
-
-func generateID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand: " + err.Error())
-	}
-	return strings.TrimRight(hex.EncodeToString(b), "=")
 }

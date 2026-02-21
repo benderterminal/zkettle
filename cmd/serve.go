@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,11 +23,12 @@ import (
 func RunServe(args []string, webFS embed.FS) error {
 	f := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := f.Int("port", 3000, "HTTP port")
-	host := f.String("host", "0.0.0.0", "HTTP host")
+	host := f.String("host", "127.0.0.1", "HTTP host (use 0.0.0.0 to listen on all interfaces)")
 	dataDir := f.String("data", "./data", "Data directory")
 	baseURLFlag := f.String("base-url", "", "Base URL for generated links")
 	corsOrigins := f.String("cors-origins", "", "Comma-separated list of allowed CORS origins")
 	tunnelFlag := f.Bool("tunnel", false, "Expose server via Cloudflare Quick Tunnel")
+	trustProxy := f.Bool("trust-proxy", false, "Trust X-Forwarded-For/X-Real-Ip headers (enable when behind a reverse proxy)")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
@@ -56,11 +58,11 @@ func RunServe(args []string, webFS embed.FS) error {
 		}
 	}
 
-	return runServe(*host, *port, *dataDir, bu, origins, *tunnelFlag, webFS)
+	return runServe(*host, *port, *dataDir, bu, origins, *tunnelFlag, *trustProxy, webFS)
 }
 
-func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOrigins []string, useTunnel bool, webFS embed.FS) error {
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOrigins []string, useTunnel bool, trustProxy bool, webFS embed.FS) error {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("creating data directory: %w", err)
 	}
 
@@ -75,51 +77,80 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 		return fmt.Errorf("creating web fs: %w", err)
 	}
 
-	cfg := server.Config{BaseURL: bu}
-	srv := server.New(cfg, st, subFS)
-
-	handler := server.CORSMiddleware(corsOrigins)(server.RateLimiter(60, 60)(srv.Handler()))
-
-	httpSrv := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", host, port),
-		Handler: handler,
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	cfg := server.Config{
+		BaseURL:     bu,
+		TrustProxy:  trustProxy,
+		CORSOrigins: corsOrigins,
+	}
+	srv := server.New(cfg, st, subFS)
+
+	handler := server.BuildHandler(ctx, cfg, srv.Handler())
+
+	httpSrv := &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", host, port),
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
 		PrintBannerFull(os.Stderr)
-		fmt.Fprintf(os.Stderr, "zkettle serving on %s:%d\n", host, port)
+		slog.Info("server started", "host", host, "port", port)
 		errCh <- httpSrv.ListenAndServe()
 	}()
 
 	if useTunnel {
 		tun, err := tunnel.Start(ctx, port)
 		if err != nil {
-			httpSrv.Shutdown(context.Background())
+			tunShutdownCtx, tunCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer tunCancel()
+			httpSrv.Shutdown(tunShutdownCtx)
 			st.Close()
 			return fmt.Errorf("starting tunnel: %w", err)
 		}
 		defer tun.Close()
 		bu.Set(tun.URL())
 		waitForTunnel(tun.URL())
-		fmt.Fprintf(os.Stderr, "\r\033[K\n  > open in browser: %s\n\n",
-			hyperlink(tun.URL(), tun.URL()),
-		)
+		fmt.Fprintf(os.Stderr, "\r\033[K\n")
+		printQuickStart(tun.URL())
+	} else {
+		printQuickStart(fmt.Sprintf("http://%s:%d", host, port))
 	}
 
 	select {
 	case <-ctx.Done():
-		fmt.Fprintln(os.Stderr, "\nshutting down...")
-		httpSrv.Shutdown(context.Background())
+		slog.Info("shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		httpSrv.Shutdown(shutdownCtx)
 		st.Close()
 		return nil
 	case err := <-errCh:
 		st.Close()
 		return err
 	}
+}
+
+// printQuickStart writes the server URL and example commands to stderr.
+func printQuickStart(baseURL string) {
+	fmt.Fprintf(os.Stderr, "  > open homepage:\n")
+	fmt.Fprintf(os.Stderr, "    %s\n\n", hyperlink(baseURL, baseURL))
+	fmt.Fprintf(os.Stderr, "  > create a secret:\n")
+	fmt.Fprintf(os.Stderr, "    echo \"my secret\" | zkettle create --server %s --views 2 --minutes 60\n\n", baseURL)
+	fmt.Fprintf(os.Stderr, "  > reveal a secret:\n")
+	fmt.Fprintf(os.Stderr, "    zkettle read <secret-url>\n\n")
+	fmt.Fprintf(os.Stderr, "  > revoke a secret:\n")
+	fmt.Fprintf(os.Stderr, "    zkettle revoke --server %s --token <delete-token> <id>\n\n", baseURL)
+	fmt.Fprintf(os.Stderr, "  > help:\n")
+	fmt.Fprintf(os.Stderr, "    zkettle help\n\n")
 }
 
 // waitForTunnel polls the tunnel URL with a countdown until it responds.

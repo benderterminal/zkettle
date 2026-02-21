@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:">
 <title>zKettle - Secret Viewer</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='30' y='45' width='40' height='35' rx='4' fill='none' stroke='%239DED9D' stroke-width='6'/%3E%3Cpath d='M50 20a15 15 0 0 0-15 15v10h30V35a15 15 0 0 0-15-15z' fill='none' stroke='%239DED9D' stroke-width='6'/%3E%3Ccircle cx='50' cy='60' r='5' fill='%239DED9D'/%3E%3C/svg%3E">
 <style>
@@ -27,6 +26,14 @@ body{
 .banner{color:#9DED9D;font-size:.7rem;line-height:1.2;margin-bottom:1.5rem;text-align:left;display:flex;justify-content:center}
 .banner a{color:inherit;text-decoration:none}
 .banner a:hover{opacity:.8}
+
+.tagline{
+    text-align:center;
+    font-size:.75rem;
+    color:#555;
+    margin-bottom:1.25rem;
+    letter-spacing:.03em;
+}
 
 .page-title{
     font-size:1.1rem;
@@ -133,7 +140,9 @@ button.primary:disabled{
     padding:1rem;
     margin:1rem 0;
     text-align:left;
-    word-break:break-all;
+    word-break:normal;
+    word-wrap:break-word;
+    overflow-wrap:break-word;
     white-space:pre-wrap;
     font-family:inherit;
     font-size:.85rem;
@@ -231,6 +240,7 @@ button.primary:disabled{
 |_  / ' // _ \ __| __| |/ _ \
  / /| . \  __/ |_| |_| |  __/
 /___|_|\_\___|\__|\__|_|\___|</a></pre>
+    <p class="tagline">encrypted. ephemeral. evaporated.</p>
     <div class="page-title">secret viewer</div>
     <div class="card">
         <!-- Loading state -->
@@ -244,14 +254,14 @@ button.primary:disabled{
         <!-- Available state -->
         <div class="state" id="state-available">
             <p class="warning">This secret will be consumed when revealed.</p>
-            <button class="primary" id="reveal-btn" onclick="revealSecret()">Reveal Secret</button>
+            <button class="primary" id="reveal-btn">Reveal Secret</button>
         </div>
 
         <!-- Revealed state -->
         <div class="state" id="state-revealed">
             <div class="secret-display" id="plaintext"></div>
             <div class="actions">
-                <button id="copy-btn" onclick="copySecret()">Copy</button>
+                <button id="copy-btn">Copy</button>
             </div>
             <div class="clipboard-status" id="clipboard-status"></div>
             <div class="keep-wrap">
@@ -267,7 +277,8 @@ button.primary:disabled{
 
         <!-- Gone state -->
         <div class="state" id="state-gone">
-            <p class="gone-msg">This secret has expired or has already been viewed.</p>
+            <p class="gone-msg">This secret is no longer available. It was either viewed by its recipient, expired, or the URL may be incorrect.</p>
+            <p class="gone-msg" style="margin-top:.75rem;font-size:.8rem">If you expected to find a secret here, contact the sender.</p>
         </div>
     </div>
 </div>
@@ -464,9 +475,9 @@ button.primary:disabled{
         }, 60000);
     }
 
-    // Expose functions to onclick handlers
-    window.revealSecret = revealSecret;
-    window.copySecret = copySecret;
+    // Wire up event listeners (no inline handlers — CSP nonce requires this)
+    document.getElementById('reveal-btn').addEventListener('click', revealSecret);
+    document.getElementById('copy-btn').addEventListener('click', copySecret);
 
     // Run pre-check on load
     checkAvailability();

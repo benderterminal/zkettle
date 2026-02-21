@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -166,5 +167,149 @@ func TestMultiViewSecret(t *testing.T) {
 	_, _, err := s.Get("mv-1")
 	if err != ErrNotFound {
 		t.Fatalf("Get after views exhausted: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestStatusAvailable(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.Create("stat-1", []byte("data"), []byte("123456789012"), 3, time.Now().Add(1*time.Hour), "tok"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Status("stat-1"); err != nil {
+		t.Fatalf("Status available: got %v, want nil", err)
+	}
+}
+
+func TestStatusNotFound(t *testing.T) {
+	s := newTestStore(t)
+	err := s.Status("nonexistent")
+	if err != ErrNotFound {
+		t.Fatalf("Status not found: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestStatusExpired(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.Create("stat-exp", []byte("data"), []byte("123456789012"), 3, time.Now().Add(-1*time.Second), "tok"); err != nil {
+		t.Fatal(err)
+	}
+	err := s.Status("stat-exp")
+	if err != ErrExpired {
+		t.Fatalf("Status expired: got %v, want ErrExpired", err)
+	}
+}
+
+func TestCleanupMixedExpiry(t *testing.T) {
+	s := newTestStore(t)
+	iv := []byte("123456789012")
+	expired := 0
+	for i := 0; i < 1000; i++ {
+		id := fmt.Sprintf("mix-%04d", i)
+		var exp time.Time
+		if i%3 == 0 {
+			exp = time.Now().Add(-1 * time.Second) // expired
+			expired++
+		} else {
+			exp = time.Now().Add(1 * time.Hour) // active
+		}
+		if err := s.Create(id, []byte("data"), iv, 1, exp, "tok"); err != nil {
+			t.Fatalf("Create %s: %v", id, err)
+		}
+	}
+	n, err := s.Cleanup()
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if n != expired {
+		t.Fatalf("Cleanup removed %d, want %d", n, expired)
+	}
+	// Verify active secrets still accessible
+	for i := 0; i < 1000; i++ {
+		if i%3 == 0 {
+			continue
+		}
+		id := fmt.Sprintf("mix-%04d", i)
+		if err := s.Status(id); err != nil {
+			t.Fatalf("Status %s after cleanup: %v", id, err)
+		}
+	}
+}
+
+func TestExpiryTimerDeletesSecret(t *testing.T) {
+	s := newTestStore(t)
+	iv := []byte("123456789012")
+	if err := s.Create("timer-1", []byte("data"), iv, 1, time.Now().Add(1*time.Second), "tok"); err != nil {
+		t.Fatal(err)
+	}
+	// Verify it exists
+	if err := s.Status("timer-1"); err != nil {
+		t.Fatalf("before expiry: %v", err)
+	}
+	// Wait for expiry + cleanup
+	time.Sleep(2 * time.Second)
+	// Row should be deleted from DB, not just inaccessible
+	err := s.Status("timer-1")
+	if err != ErrNotFound {
+		t.Fatalf("after expiry timer: got %v, want ErrNotFound (row should be deleted)", err)
+	}
+}
+
+func TestExpiryTimerDeletesAtExactTimes(t *testing.T) {
+	s := newTestStore(t)
+	iv := []byte("123456789012")
+	// First secret expires in 1s
+	if err := s.Create("exact-1", []byte("data"), iv, 1, time.Now().Add(1*time.Second), "tok"); err != nil {
+		t.Fatal(err)
+	}
+	// Second secret expires in 3s
+	if err := s.Create("exact-2", []byte("data"), iv, 1, time.Now().Add(3*time.Second), "tok"); err != nil {
+		t.Fatal(err)
+	}
+	// After 2s: first should be deleted, second still available
+	time.Sleep(2 * time.Second)
+	if err := s.Status("exact-1"); err != ErrNotFound {
+		t.Fatalf("exact-1 after 2s: got %v, want ErrNotFound", err)
+	}
+	if err := s.Status("exact-2"); err != nil {
+		t.Fatalf("exact-2 after 2s: got %v, want nil (still active)", err)
+	}
+	// After another 2s: second should also be deleted
+	time.Sleep(2 * time.Second)
+	if err := s.Status("exact-2"); err != ErrNotFound {
+		t.Fatalf("exact-2 after 4s: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestPingSuccess(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.Ping(); err != nil {
+		t.Fatalf("Ping on live DB: %v", err)
+	}
+}
+
+func TestPingAfterClose(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if err := s.Ping(); err == nil {
+		t.Fatal("Ping after Close: expected error, got nil")
+	}
+}
+
+func TestStatusConsumed(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.Create("stat-con", []byte("data"), []byte("123456789012"), 1, time.Now().Add(1*time.Hour), "tok"); err != nil {
+		t.Fatal(err)
+	}
+	// Consume the single view
+	if _, _, err := s.Get("stat-con"); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	// Row is deleted after views exhausted, so Status returns ErrNotFound
+	err := s.Status("stat-con")
+	if err != ErrNotFound {
+		t.Fatalf("Status consumed: got %v, want ErrNotFound", err)
 	}
 }
