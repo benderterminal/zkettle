@@ -297,7 +297,7 @@ noscript{
 /___|_|\_\___|\__|\__|_|\___|</a></pre>
 <p class="tagline">encrypted. ephemeral. evaporated.</p>
 
-<h1 id="page-title">create a secret</h1>
+<h1 id="page-title">encrypt a secret</h1>
 
 <div class="card" id="form-section">
   <label for="secret-input">secret content</label>
@@ -730,7 +730,7 @@ async function revokeSecret(){
 function resetForm(){
   currentSecretID='';
   currentDeleteToken='';
-  document.getElementById('page-title').textContent='create a secret';
+  document.getElementById('page-title').textContent='encrypt a secret';
   document.getElementById('result-section').classList.add('hidden');
   document.getElementById('form-section').classList.remove('hidden');
   var textarea=document.getElementById('secret-input');
