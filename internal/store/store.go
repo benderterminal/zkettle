@@ -52,6 +52,7 @@ func New(dbPath string) (*Store, error) {
 		"PRAGMA busy_timeout = 5000",
 		"PRAGMA synchronous = NORMAL",
 		"PRAGMA foreign_keys = ON",
+		"PRAGMA secure_delete = ON",
 	} {
 		if _, err := db.Exec(pragma); err != nil {
 			db.Close()
