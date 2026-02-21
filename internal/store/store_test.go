@@ -313,3 +313,105 @@ func TestStatusConsumed(t *testing.T) {
 		t.Fatalf("Status consumed: got %v, want ErrNotFound", err)
 	}
 }
+
+// --- P1-01: Constant-time delete token comparison benchmark ---
+
+func BenchmarkDeleteTokenComparison(b *testing.B) {
+	s, err := New(":memory:")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Create("bench-1", []byte("data"), []byte("123456789012"), 100, time.Now().Add(1*time.Hour), "correct-token"); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.Delete("bench-1", "wrong-token")
+	}
+}
+
+// --- P2-03: Store close/double-close tests ---
+
+func TestDoubleCloseNoPanic(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	// Second close should not panic
+	s.Close()
+}
+
+func TestCreateAfterClose(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	err = s.Create("closed-1", []byte("data"), []byte("123456789012"), 1, time.Now().Add(1*time.Hour), "tok")
+	if err == nil {
+		t.Fatal("Create after Close: expected error, got nil")
+	}
+}
+
+func TestGetAfterClose(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	_, _, err = s.Get("closed-1")
+	if err == nil {
+		t.Fatal("Get after Close: expected error, got nil")
+	}
+}
+
+func TestListAfterClose(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	_, err = s.List()
+	if err == nil {
+		t.Fatal("List after Close: expected error, got nil")
+	}
+}
+
+func TestCleanupAfterClose(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	_, err = s.Cleanup()
+	if err == nil {
+		t.Fatal("Cleanup after Close: expected error, got nil")
+	}
+}
+
+// --- P2-04: Delete token wrong-auth test coverage ---
+
+func TestDeleteWrongToken(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.Create("delw-1", []byte("data"), []byte("123456789012"), 5, time.Now().Add(1*time.Hour), "correct-tok"); err != nil {
+		t.Fatal(err)
+	}
+	err := s.Delete("delw-1", "wrong-tok")
+	if err != ErrUnauthorized {
+		t.Fatalf("Delete with wrong token: got %v, want ErrUnauthorized", err)
+	}
+	// Verify secret still exists after failed delete
+	if err := s.Status("delw-1"); err != nil {
+		t.Fatalf("secret should still exist after wrong token delete: %v", err)
+	}
+}
+
+func TestDeleteMissingSecret(t *testing.T) {
+	s := newTestStore(t)
+	err := s.Delete("nonexistent-id", "any-tok")
+	if err != ErrNotFound {
+		t.Fatalf("Delete nonexistent: got %v, want ErrNotFound", err)
+	}
+}
