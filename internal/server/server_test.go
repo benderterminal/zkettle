@@ -508,3 +508,126 @@ func TestCreateEndpointRateLimit(t *testing.T) {
 		t.Fatalf("11th request: got %d, want 429", w.Code)
 	}
 }
+
+// --- Composability extension point tests (L12-01) ---
+
+func TestNewWithZeroValueConfig(t *testing.T) {
+	// Zero-value Config has nil AuthFunc, nil ExtraRoutes, nil Middleware.
+	// Server should construct and behave identically to before the refactor.
+	srv, st := newTestServer(t)
+
+	// Core routes still work.
+	st.Create(testID1, []byte("encrypted"), []byte("123456789012"), 1, time.Now().Add(1*time.Hour), "tok")
+
+	req := httptest.NewRequest("GET", "/api/secrets/"+testID1, nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET with zero-value config: got %d, want 200. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Health endpoint works.
+	req = httptest.NewRequest("GET", "/health", nil)
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /health with zero-value config: got %d, want 200", w.Code)
+	}
+
+	// Security headers still applied.
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("missing X-Content-Type-Options header with zero-value config")
+	}
+}
+
+func TestExtraRoutesAddsCustomRoute(t *testing.T) {
+	cfg := Config{
+		ExtraRoutes: func(mux *http.ServeMux) {
+			mux.HandleFunc("GET /custom", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("custom-route"))
+			})
+		},
+	}
+	srv, _ := newTestServerWithConfig(t, cfg)
+
+	// Custom route is reachable.
+	req := httptest.NewRequest("GET", "/custom", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /custom: got %d, want 200", w.Code)
+	}
+	if got := w.Body.String(); got != "custom-route" {
+		t.Fatalf("GET /custom body: got %q, want %q", got, "custom-route")
+	}
+
+	// Core routes still work alongside custom route.
+	req = httptest.NewRequest("GET", "/health", nil)
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /health with ExtraRoutes: got %d, want 200", w.Code)
+	}
+}
+
+func TestMiddlewareWrapsHandler(t *testing.T) {
+	var order []string
+
+	mw1 := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			order = append(order, "mw1-before")
+			w.Header().Set("X-Mw1", "applied")
+			next.ServeHTTP(w, r)
+			order = append(order, "mw1-after")
+		})
+	}
+	mw2 := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			order = append(order, "mw2-before")
+			w.Header().Set("X-Mw2", "applied")
+			next.ServeHTTP(w, r)
+			order = append(order, "mw2-after")
+		})
+	}
+
+	cfg := Config{
+		Middleware: []func(http.Handler) http.Handler{mw1, mw2},
+	}
+	srv, _ := newTestServerWithConfig(t, cfg)
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /health with middleware: got %d, want 200", w.Code)
+	}
+
+	// Both middleware headers should be present.
+	if got := w.Header().Get("X-Mw1"); got != "applied" {
+		t.Fatalf("X-Mw1 header: got %q, want %q", got, "applied")
+	}
+	if got := w.Header().Get("X-Mw2"); got != "applied" {
+		t.Fatalf("X-Mw2 header: got %q, want %q", got, "applied")
+	}
+
+	// Security headers still present (middleware wraps, not replaces).
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("security headers missing when middleware is applied")
+	}
+
+	// Middleware applied in order: mw1 is first in slice = outermost wrapper.
+	// Execution order: mw2-before, mw1-before, handler, mw1-after, mw2-after
+	// Because mw1 is applied first (wrapping securityHeaders+mux),
+	// then mw2 wraps mw1. So mw2 is outermost.
+	expected := []string{"mw2-before", "mw1-before", "mw1-after", "mw2-after"}
+	if len(order) != len(expected) {
+		t.Fatalf("middleware execution order: got %v, want %v", order, expected)
+	}
+	for i, v := range expected {
+		if order[i] != v {
+			t.Fatalf("middleware execution order[%d]: got %q, want %q (full: %v)", i, order[i], v, order)
+		}
+	}
+}

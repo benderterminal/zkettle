@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/taw/zkettle/internal/auth"
 	"github.com/taw/zkettle/internal/baseurl"
 	"github.com/taw/zkettle/internal/id"
 	"github.com/taw/zkettle/internal/store"
@@ -28,6 +29,20 @@ type Config struct {
 	ReadBurst   int
 	WriteRPS    float64
 	WriteBurst  int
+
+	// Extension points for composability.
+	// All are optional; nil values are safe defaults (no auth, no extra routes, no middleware).
+
+	// AuthFunc extracts an identity from a request. nil = no authentication.
+	// Added to Config but not yet called by any handler.
+	AuthFunc func(r *http.Request) (*auth.Identity, error)
+
+	// ExtraRoutes registers additional routes on the server mux. nil = no extra routes.
+	ExtraRoutes func(mux *http.ServeMux)
+
+	// Middleware is a chain of additional middleware applied after security headers.
+	// Each function wraps the handler; they are applied in slice order (first = outermost).
+	Middleware []func(http.Handler) http.Handler
 }
 
 // BuildHandler composes the middleware chain around the given handler.
@@ -85,11 +100,20 @@ func New(cfg Config, st *store.Store, webFS fs.FS) *Server {
 	s.mux.HandleFunc("DELETE /api/secrets/{id}", s.handleDelete)
 	s.mux.HandleFunc("GET /s/{id}", s.handleViewer)
 	s.mux.HandleFunc("GET /health", s.handleHealth)
+
+	if cfg.ExtraRoutes != nil {
+		cfg.ExtraRoutes(s.mux)
+	}
+
 	return s
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.securityHeaders(s.mux)
+	h := s.securityHeaders(s.mux)
+	for _, mw := range s.cfg.Middleware {
+		h = mw(h)
+	}
+	return h
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
