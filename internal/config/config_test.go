@@ -214,6 +214,41 @@ func TestMergeNoFile(t *testing.T) {
 	}
 }
 
+func TestLoadEnvLogFormat(t *testing.T) {
+	os.Setenv("ZKETTLE_LOG_FORMAT", "json")
+	defer os.Unsetenv("ZKETTLE_LOG_FORMAT")
+
+	cfg, set := LoadEnv()
+	if !set["log_format"] {
+		t.Fatal("expected log_format to be set")
+	}
+	if cfg.LogFormat != "json" {
+		t.Fatalf("log_format: got %q, want %q", cfg.LogFormat, "json")
+	}
+}
+
+func TestMergeLogFormat(t *testing.T) {
+	defaults := Defaults()
+	file := Config{LogFormat: "json"}
+	env := Config{}
+	envSet := map[string]bool{}
+	flags := Config{}
+	flagSet := map[string]bool{}
+
+	result := Merge(defaults, file, true, env, envSet, flags, flagSet)
+	if result.LogFormat != "json" {
+		t.Fatalf("log_format: got %q, want %q (from file)", result.LogFormat, "json")
+	}
+
+	// Env overrides file
+	env.LogFormat = "text"
+	envSet["log_format"] = true
+	result = Merge(defaults, file, true, env, envSet, flags, flagSet)
+	if result.LogFormat != "text" {
+		t.Fatalf("log_format: got %q, want %q (env overrides file)", result.LogFormat, "text")
+	}
+}
+
 func TestMergeUnknownKeysIgnored(t *testing.T) {
 	tmp := t.TempDir()
 	origDir, _ := os.Getwd()

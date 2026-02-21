@@ -83,9 +83,18 @@ func RunServe(args []string, webFS embed.FS) error {
 		bu.Set(resolved.BaseURL)
 	}
 
+	// Initialize slog before any logging
+	var logHandler slog.Handler
+	if resolved.LogFormat == "json" {
+		logHandler = slog.NewJSONHandler(os.Stderr, nil)
+	} else {
+		logHandler = slog.NewTextHandler(os.Stderr, nil)
+	}
+	slog.SetDefault(slog.New(logHandler))
+
 	for _, o := range resolved.CORSOrigins {
 		if o == "*" {
-			fmt.Fprintln(os.Stderr, "WARNING: CORS origin '*' allows any website to make cross-origin requests, disabling implicit CSRF protection")
+			slog.Warn("wildcard CORS origin allows cross-origin requests, disabling implicit CSRF protection")
 			break
 		}
 	}
@@ -94,10 +103,10 @@ func RunServe(args []string, webFS embed.FS) error {
 		slog.Info("loaded config file", "path", filePath)
 	}
 
-	return runServe(resolved.Host, resolved.Port, resolved.Data, bu, resolved.CORSOrigins, resolved.Tunnel, resolved.TrustProxy, webFS)
+	return runServe(resolved.Host, resolved.Port, resolved.Data, bu, resolved.CORSOrigins, resolved.Tunnel, resolved.TrustProxy, resolved.LogFormat, webFS)
 }
 
-func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOrigins []string, useTunnel bool, trustProxy bool, webFS embed.FS) error {
+func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOrigins []string, useTunnel bool, trustProxy bool, logFormat string, webFS embed.FS) error {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("creating data directory: %w", err)
 	}
@@ -116,8 +125,6 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
-
 	slog.Info("configuration",
 		"port", port,
 		"host", host,
@@ -125,6 +132,7 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 		"base_url", bu.Get(),
 		"cors_origins", corsOrigins,
 		"trust_proxy", trustProxy,
+		"log_format", logFormat,
 	)
 
 	cfg := server.Config{

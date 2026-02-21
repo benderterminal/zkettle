@@ -19,6 +19,7 @@ type Config struct {
 	CORSOrigins []string `toml:"cors_origins"`
 	TrustProxy  bool     `toml:"trust_proxy"`
 	Tunnel      bool     `toml:"tunnel"`
+	LogFormat   string   `toml:"log_format"` // "json" or "text" (default: "text")
 }
 
 // Defaults returns a Config with default values.
@@ -98,6 +99,10 @@ func LoadEnv() (Config, map[string]bool) {
 		cfg.Tunnel = v == "true" || v == "1" || v == "yes"
 		set["tunnel"] = true
 	}
+	if v := os.Getenv("ZKETTLE_LOG_FORMAT"); v != "" {
+		cfg.LogFormat = v
+		set["log_format"] = true
+	}
 
 	return cfg, set
 }
@@ -131,6 +136,9 @@ func Merge(defaults, file Config, fileFound bool, env Config, envSet map[string]
 		if file.Tunnel {
 			result.Tunnel = file.Tunnel
 		}
+		if file.LogFormat != "" {
+			result.LogFormat = file.LogFormat
+		}
 	}
 
 	// Layer 2: env overrides file
@@ -155,6 +163,9 @@ func Merge(defaults, file Config, fileFound bool, env Config, envSet map[string]
 	if envSet["tunnel"] {
 		result.Tunnel = env.Tunnel
 	}
+	if envSet["log_format"] {
+		result.LogFormat = env.LogFormat
+	}
 
 	// Layer 3: flags override env
 	if flagSet["port"] {
@@ -177,6 +188,9 @@ func Merge(defaults, file Config, fileFound bool, env Config, envSet map[string]
 	}
 	if flagSet["tunnel"] {
 		result.Tunnel = flags.Tunnel
+	}
+	if flagSet["log-format"] {
+		result.LogFormat = flags.LogFormat
 	}
 
 	return result

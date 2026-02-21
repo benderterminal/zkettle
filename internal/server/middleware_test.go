@@ -230,6 +230,44 @@ func TestRateLimiterReadWriteSplit(t *testing.T) {
 
 // --- X-Forwarded-For depth (B4) ---
 
+func TestRequestLoggerSetsRequestID(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	logged := RequestLogger(false, 1)(handler)
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	logged.ServeHTTP(w, req)
+
+	reqID := w.Header().Get("X-Request-Id")
+	if reqID == "" {
+		t.Fatal("expected X-Request-Id header to be set")
+	}
+	if len(reqID) != 8 {
+		t.Fatalf("expected 8 hex chars, got %d chars: %q", len(reqID), reqID)
+	}
+}
+
+func TestRequestLoggerUniqueIDs(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	logged := RequestLogger(false, 1)(handler)
+
+	ids := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		req := httptest.NewRequest("GET", "/", nil)
+		w := httptest.NewRecorder()
+		logged.ServeHTTP(w, req)
+		id := w.Header().Get("X-Request-Id")
+		if ids[id] {
+			t.Fatalf("duplicate request ID after %d requests: %s", i, id)
+		}
+		ids[id] = true
+	}
+}
+
 func TestClientIPProxyDepth(t *testing.T) {
 	tests := []struct {
 		name       string
