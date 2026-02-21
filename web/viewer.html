@@ -172,6 +172,8 @@ button.primary:disabled{
     font-size:.85rem;
     line-height:1.5;
 }
+.gone-note{margin-top:.75rem;font-size:.8rem}
+.noscript-msg{font-family:monospace;color:#b0b0b0;text-align:center;padding:3rem 1rem}
 
 /* Actions row */
 .actions{
@@ -278,14 +280,14 @@ button.primary:disabled{
         <!-- Gone state -->
         <div class="state" id="state-gone">
             <p class="gone-msg">This secret is no longer available. It was either viewed by its recipient, expired, or the URL may be incorrect.</p>
-            <p class="gone-msg" style="margin-top:.75rem;font-size:.8rem">If you expected to find a secret here, contact the sender.</p>
+            <p class="gone-msg gone-note">If you expected to find a secret here, contact the sender.</p>
         </div>
     </div>
 </div>
 
 <noscript>
     <style>.container{display:none}</style>
-    <div style="font-family:monospace;color:#b0b0b0;text-align:center;padding:3rem 1rem;">
+    <div class="noscript-msg">
         JavaScript is required to view secrets.
     </div>
 </noscript>

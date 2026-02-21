@@ -35,6 +35,8 @@ func main() {
 		err = cmd.RunRead(os.Args[2:])
 	case "revoke":
 		err = cmd.RunRevoke(os.Args[2:])
+	case "generate":
+		err = cmd.RunGenerate(os.Args[2:])
 	case "version":
 		fmt.Printf("zkettle %s (commit %s, built %s)\n", version, commit, date)
 	case "help", "--help", "-h":
@@ -60,6 +62,7 @@ Commands:
   create    Encrypt and store a secret (reads from stdin)
   read      Retrieve and decrypt a secret
   revoke    Delete a secret
+  generate  Generate a cryptographically random secret
   mcp       Start MCP server (stdio) with HTTP backend
   version   Print version
   help      Show this help`)

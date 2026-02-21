@@ -2,9 +2,11 @@ package mcptools
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -90,23 +92,51 @@ func newSSRFSafeClient(timeout time.Duration, allowPrivate bool) *http.Client {
 }
 
 type CreateSecretInput struct {
-	Content string `json:"content" jsonschema:"The plaintext secret to encrypt and share. Maximum 500KB."`
-	Views   int    `json:"views,omitempty" jsonschema:"Maximum number of views before the secret is permanently deleted. Default 1 (single-use). Range: 1-100."`
-	Minutes int    `json:"minutes,omitempty" jsonschema:"Minutes until the secret expires and is permanently deleted regardless of remaining views. Default 1440 (24 hours). Range: 1-43200 (30 days)."`
+	Content string `json:"content" jsonschema:"The plaintext secret to encrypt and share. The server never sees this value -- encryption happens before storage. Maximum 500KB. Examples: API keys, passwords, certificates, tokens, connection strings."`
+	Views   int    `json:"views,omitempty" jsonschema:"Maximum number of views before the secret is permanently deleted. Default 1 (single-use). Range: 1-100. Use 1 for one-time passwords, higher values for shared team credentials."`
+	Minutes int    `json:"minutes,omitempty" jsonschema:"Minutes until the secret expires and is permanently deleted regardless of remaining views. Default 1440 (24 hours). Range: 1-43200 (30 days). Use short TTLs for sensitive credentials."`
 }
 
 type ReadSecretInput struct {
-	URL string `json:"url" jsonschema:"The full zKettle secret URL including the decryption key in the fragment (#)."`
+	URL string `json:"url" jsonschema:"The full zKettle secret URL including the decryption key in the fragment (#). Format: https://host/s/{id}#{key}. WARNING: Reading consumes one view -- if this is the last view the secret is permanently destroyed."`
 }
 
 type RevokeSecretInput struct {
-	ID          string `json:"id" jsonschema:"The secret ID to permanently delete."`
-	DeleteToken string `json:"delete_token" jsonschema:"The delete token returned by create_secret when the secret was originally created. Required for authorization."`
+	ID          string `json:"id" jsonschema:"The 32-character hex secret ID to permanently delete. Found in the URL path: /s/{id}"`
+	DeleteToken string `json:"delete_token" jsonschema:"The delete token returned by create_secret. Required for authorization -- prevents unauthorized deletion."`
 }
 
 type ListSecretsInput struct{}
 
 const maxContentSize = 500 * 1024 // 500KB plaintext limit
+
+const (
+	genAlphanumeric = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	genSymbols      = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?"
+	genHex          = "0123456789abcdef"
+	genBase64URL    = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+)
+
+func generateRandomString(length int, charset string) (string, error) {
+	result := make([]byte, length)
+	max := big.NewInt(int64(len(charset)))
+	for i := range result {
+		idx, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			return "", err
+		}
+		result[i] = charset[idx.Int64()]
+	}
+	return string(result), nil
+}
+
+type GenerateSecretInput struct {
+	Length  int    `json:"length,omitempty" jsonschema:"Length of generated secret in characters. Default 32. Range: 1-4096."`
+	Charset string `json:"charset,omitempty" jsonschema:"Character set: alphanumeric (default), symbols, hex, base64url."`
+	Create  bool   `json:"create,omitempty" jsonschema:"If true, encrypt and store the generated secret, returning URL + delete_token instead of raw text."`
+	Views   int    `json:"views,omitempty" jsonschema:"When create=true, max views before deletion. Default 1."`
+	Minutes int    `json:"minutes,omitempty" jsonschema:"When create=true, minutes until expiry. Default 1440 (24h)."`
+}
 
 // Options configures MCP tool behavior.
 type Options struct {
@@ -300,6 +330,82 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 		}
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},
+		}, nil, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "generate_secret",
+		Description: "Generate a cryptographically random secret (password, token, API key, or hex key). Optionally encrypt and store it as a self-destructing secret in one step. Uses crypto/rand — no network calls for generation.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args GenerateSecretInput) (*mcp.CallToolResult, any, error) {
+		length := args.Length
+		if length == 0 {
+			length = 32
+		}
+		if length < 1 || length > 4096 {
+			return nil, nil, fmt.Errorf("length must be 1-4096")
+		}
+
+		charsetName := args.Charset
+		if charsetName == "" {
+			charsetName = "alphanumeric"
+		}
+		var chars string
+		switch charsetName {
+		case "alphanumeric":
+			chars = genAlphanumeric
+		case "symbols":
+			chars = genSymbols
+		case "hex":
+			chars = genHex
+		case "base64url":
+			chars = genBase64URL
+		default:
+			return nil, nil, fmt.Errorf("unknown charset %q (use: alphanumeric, symbols, hex, base64url)", charsetName)
+		}
+
+		secret, err := generateRandomString(length, chars)
+		if err != nil {
+			return nil, nil, fmt.Errorf("generating secret: %w", err)
+		}
+
+		if !args.Create {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: secret}},
+			}, nil, nil
+		}
+
+		views := args.Views
+		if views == 0 {
+			views = 1
+		}
+		if views < 1 || views > 100 {
+			return nil, nil, fmt.Errorf("views must be 1-100")
+		}
+		minutes := args.Minutes
+		if minutes == 0 {
+			minutes = 1440
+		}
+		if minutes < 1 || minutes > 43200 {
+			return nil, nil, fmt.Errorf("minutes must be 1-43200 (30 days)")
+		}
+
+		ciphertext, iv, key, err := crypto.Encrypt([]byte(secret))
+		if err != nil {
+			return nil, nil, fmt.Errorf("encrypting: %w", err)
+		}
+
+		secretID := id.Generate()
+		deleteToken := id.Generate()
+		expiresAt := time.Now().Add(time.Duration(minutes) * time.Minute)
+
+		if err := st.Create(secretID, ciphertext, iv, views, expiresAt, deleteToken); err != nil {
+			return nil, nil, fmt.Errorf("storing secret: %w", err)
+		}
+
+		secretURL := fmt.Sprintf("%s/s/%s#%s", baseURL.Get(), secretID, crypto.EncodeKey(key))
+		resultText := fmt.Sprintf("url: %s\ndelete_token: %s", secretURL, deleteToken)
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: resultText}},
 		}, nil, nil
 	})
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/taw/zkettle/internal/baseurl"
+	"github.com/taw/zkettle/internal/config"
 	"github.com/taw/zkettle/internal/mcptools"
 	"github.com/taw/zkettle/internal/server"
 	"github.com/taw/zkettle/internal/store"
@@ -23,30 +24,61 @@ import (
 
 func RunMCP(args []string, webFS embed.FS, version string) error {
 	f := flag.NewFlagSet("mcp", flag.ExitOnError)
-	port := f.Int("port", 3000, "HTTP port for API server")
-	dataDir := f.String("data", "./data", "Data directory")
+	port := f.Int("port", 0, "HTTP port for API server")
+	dataDir := f.String("data", "", "Data directory")
 	baseURLFlag := f.String("base-url", "", "Base URL for generated links")
-	host := f.String("host", "127.0.0.1", "HTTP host (default 127.0.0.1 for local-only access)")
+	host := f.String("host", "", "HTTP host")
 	tunnelFlag := f.Bool("tunnel", false, "Expose server via Cloudflare Quick Tunnel")
 	trustProxy := f.Bool("trust-proxy", false, "Trust X-Forwarded-For/X-Real-Ip headers (enable when behind a reverse proxy)")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
 
-	if *tunnelFlag && *baseURLFlag != "" {
+	flagSet := make(map[string]bool)
+	f.Visit(func(fl *flag.Flag) { flagSet[fl.Name] = true })
+
+	var flagCfg config.Config
+	if flagSet["port"] {
+		flagCfg.Port = *port
+	}
+	if flagSet["host"] {
+		flagCfg.Host = *host
+	}
+	if flagSet["data"] {
+		flagCfg.Data = *dataDir
+	}
+	if flagSet["base-url"] {
+		flagCfg.BaseURL = *baseURLFlag
+	}
+	if flagSet["tunnel"] {
+		flagCfg.Tunnel = *tunnelFlag
+	}
+	if flagSet["trust-proxy"] {
+		flagCfg.TrustProxy = *trustProxy
+	}
+
+	defaults := config.Defaults()
+	fileCfg, filePath, err := config.LoadFile()
+	if err != nil {
+		return err
+	}
+	envCfg, envSet := config.LoadEnv()
+	resolved := config.Merge(defaults, fileCfg, filePath != "", envCfg, envSet, flagCfg, flagSet)
+
+	if resolved.Tunnel && resolved.BaseURL != "" {
 		return fmt.Errorf("--tunnel and --base-url are mutually exclusive")
 	}
 
-	bu := baseurl.New(fmt.Sprintf("http://localhost:%d", *port))
-	if *baseURLFlag != "" {
-		bu.Set(*baseURLFlag)
+	bu := baseurl.New(fmt.Sprintf("http://localhost:%d", resolved.Port))
+	if resolved.BaseURL != "" {
+		bu.Set(resolved.BaseURL)
 	}
 
-	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
+	if err := os.MkdirAll(resolved.Data, 0o700); err != nil {
 		return fmt.Errorf("creating data directory: %w", err)
 	}
 
-	dbPath := *dataDir + "/zkettle.db"
+	dbPath := resolved.Data + "/zkettle.db"
 	st, err := store.New(dbPath)
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
@@ -63,12 +95,16 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
-	cfg := server.Config{BaseURL: bu, TrustProxy: *trustProxy}
+	if filePath != "" {
+		slog.Info("loaded config file", "path", filePath)
+	}
+
+	cfg := server.Config{BaseURL: bu, TrustProxy: resolved.TrustProxy}
 	srv := server.New(cfg, st, subFS)
 	handler := server.BuildHandler(ctx, cfg, srv.Handler())
 
 	httpSrv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", *host, *port),
+		Addr:              fmt.Sprintf("%s:%d", resolved.Host, resolved.Port),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -79,14 +115,14 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	// Start HTTP server in background
 	go func() {
 		PrintBannerFull(os.Stderr)
-		slog.Info("HTTP server started", "host", *host, "port", *port)
+		slog.Info("HTTP server started", "host", resolved.Host, "port", resolved.Port)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("HTTP server failed", "error", err)
 		}
 	}()
 
-	if *tunnelFlag {
-		tun, err := tunnel.Start(ctx, *port)
+	if resolved.Tunnel {
+		tun, err := tunnel.Start(ctx, resolved.Port)
 		if err != nil {
 			tunShutdownCtx, tunCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer tunCancel()
