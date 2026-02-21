@@ -11,6 +11,7 @@ body{
   font-family:'JetBrains Mono','Fira Code','SF Mono','Cascadia Code',monospace;
   background:#0a0a0a;
   color:#b0b0b0;
+  color-scheme:dark;
   min-height:100vh;
   display:flex;
   justify-content:center;
@@ -68,31 +69,6 @@ textarea::placeholder{color:#555}
   flex-wrap:wrap;
 }
 .option{flex:1;min-width:140px}
-select{
-  width:100%;
-  background:#0a0a0a;
-  border:1px solid #333;
-  border-radius:4px;
-  color:#e0e0e0;
-  font-family:inherit;
-  font-size:.8rem;
-  padding:.5rem .75rem;
-  appearance:none;
-  -webkit-appearance:none;
-  cursor:pointer;
-  transition:border-color .15s;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23555' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;
-  background-position:right .6rem center;
-}
-select:focus{
-  outline:none;
-  border-color:#9DED9D;
-}
-select option{
-  background:#111;
-  color:#e0e0e0;
-}
 input[type="number"],
 input[type="datetime-local"]{
   width:100%;
@@ -111,7 +87,6 @@ input[type="datetime-local"]:focus{
   border-color:#9DED9D;
 }
 input[type="datetime-local"]::-webkit-calendar-picker-indicator{
-  filter:invert(1);
   cursor:pointer;
 }
 .preset-row{
@@ -173,7 +148,6 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
   font-size:.8rem;
 }
 /* Result section */
-.result{}
 .result-label{
   font-size:.8rem;
   color:#777;
@@ -267,35 +241,43 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
 .text-success{color:#9DED9D!important}
 .text-dimmed{color:#888!important}
 .recent-row{display:flex;align-items:center;gap:.75rem;padding:.4rem 0;border-bottom:1px solid #222;font-size:.75rem}
-.recent-info{flex:1;color:#888;overflow:hidden;text-overflow:ellipsis}
+.recent-info{flex:1;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .recent-btn-sm{font-size:.65rem;padding:.3rem .6rem}
 .recent-section-card{margin-top:1rem}
 .recent-heading{font-size:.8rem;color:#777;margin-bottom:.75rem}
 #byte-counter{font-size:.7rem;color:#555;text-align:right;margin-top:.25rem}
-.gen-row{display:flex;gap:.5rem;align-items:center;margin-top:.5rem}
+.gen-toggle{
+  background:none;
+  border:none;
+  color:#555;
+  font-family:inherit;
+  font-size:.72rem;
+  cursor:pointer;
+  padding:.4rem 0;
+  margin-top:.5rem;
+  transition:color .15s;
+}
+.gen-toggle:hover{color:#9DED9D}
+.gen-section{margin-top:.4rem}
+.gen-row{display:flex;gap:.5rem;align-items:center;margin-top:.4rem}
+.gen-row .preset-row{margin-top:0;gap:.3rem}
+.gen-row .preset-btn{flex:none;padding:.3rem .5rem;font-size:.68rem}
+.gen-hint{font-size:.7rem;color:#555;margin-top:.4rem}
 .gen-btn{
+  flex:1;
   background:#222;
   color:#9DED9D;
   border:1px solid #333;
   border-radius:4px;
-  padding:.4rem .75rem;
+  padding:.45rem .75rem;
   font-family:inherit;
   font-size:.75rem;
   cursor:pointer;
   white-space:nowrap;
   transition:background .15s;
+  text-align:center;
 }
 .gen-btn:hover{background:#2a2a2a}
-.gen-select{
-  background:#0a0a0a;
-  border:1px solid #333;
-  border-radius:4px;
-  color:#e0e0e0;
-  font-family:inherit;
-  font-size:.72rem;
-  padding:.35rem .5rem;
-  cursor:pointer;
-}
 noscript{
   display:block;
   text-align:center;
@@ -320,13 +302,17 @@ noscript{
 <div class="card" id="form-section">
   <label for="secret-input">secret content</label>
   <textarea id="secret-input" rows="4" placeholder="paste your secret here..." spellcheck="false"></textarea>
-  <div class="gen-row">
-    <button type="button" class="gen-btn" id="gen-btn">Generate</button>
-    <select class="gen-select" id="gen-type">
-      <option value="password">Password (mixed)</option>
-      <option value="token">Token (alphanumeric)</option>
-      <option value="hex">Hex key</option>
-    </select>
+  <button type="button" class="gen-toggle" id="gen-toggle">&#9656; expand to generate a random secret</button>
+  <div class="gen-section hidden" id="gen-section">
+    <div class="gen-row">
+      <div class="preset-row" id="gen-presets">
+        <button type="button" class="preset-btn active" data-gen="password">Password</button>
+        <button type="button" class="preset-btn" data-gen="token">Token</button>
+        <button type="button" class="preset-btn" data-gen="hex">Hex Key</button>
+      </div>
+      <button type="button" class="gen-btn" id="gen-btn">Generate</button>
+    </div>
+    <div class="gen-hint" id="gen-hint">24 chars — letters, numbers, symbols</div>
   </div>
   <div id="byte-counter" class="hidden"></div>
 
@@ -462,6 +448,11 @@ function initForm(){
     btn.addEventListener('click',function(){selectExpiryPreset(parseInt(btn.dataset.minutes))});
   });
   document.getElementById('expiry-custom-btn').addEventListener('click',showCustomExpiry);
+
+  // Wire up generate type preset buttons
+  document.querySelectorAll('#gen-presets .preset-btn[data-gen]').forEach(function(btn){
+    btn.addEventListener('click',function(){selectGenPreset(btn.dataset.gen)});
+  });
 }
 
 var MAX_BYTES=500*1024;
@@ -514,7 +505,7 @@ function removeToken(id){
 }
 
 function renderRecent(){
-  var tokens=loadTokens();
+  var tokens=loadTokens().slice().reverse();
   var section=document.getElementById('recent-section');
   var list=document.getElementById('recent-list');
   if(!tokens.length){section.classList.add('hidden');return;}
@@ -544,8 +535,18 @@ async function revokeRecent(entry,btn){
       method:'DELETE',
       headers:{'Authorization':'Bearer '+entry.deleteToken}
     });
-    if(resp.status===204||resp.status===404||resp.status===403){
+    if(resp.status===204||resp.status===404){
       removeToken(entry.id);
+      if(entry.id===currentSecretID){
+        var mainBtn=document.getElementById('revoke-btn');
+        var status=document.getElementById('revoke-status');
+        mainBtn.disabled=true;
+        mainBtn.textContent='Revoked';
+        status.textContent='Secret revoked.';
+        status.classList.add('text-success');status.classList.remove('text-error','text-dimmed');
+        currentSecretID='';
+        currentDeleteToken='';
+      }
       renderRecent();
     }else{
       btn.textContent='Failed';
@@ -651,8 +652,11 @@ async function createSecret(){
     document.getElementById('link-output').value=shareURL;
     document.getElementById('revoke-btn').disabled=false;
     document.getElementById('revoke-btn').textContent='Revoke Secret';
-    document.getElementById('revoke-status').textContent='';
+    var revokeStatus=document.getElementById('revoke-status');
+    revokeStatus.textContent='';
+    revokeStatus.classList.remove('text-success','text-error','text-dimmed');
     document.getElementById('result-section').classList.remove('hidden');
+    renderRecent();
 
   }catch(e){
     showError(e.message||'An unexpected error occurred.');
@@ -702,6 +706,7 @@ async function revokeSecret(){
       removeToken(currentSecretID);
       currentSecretID='';
       currentDeleteToken='';
+      renderRecent();
     }else if(resp.status===404){
       status.textContent='Already gone.';
       status.classList.add('text-dimmed');status.classList.remove('text-error','text-success');
@@ -728,18 +733,41 @@ function resetForm(){
   document.getElementById('page-title').textContent='create a secret';
   document.getElementById('result-section').classList.add('hidden');
   document.getElementById('form-section').classList.remove('hidden');
-  document.getElementById('secret-input').value='';
+  var textarea=document.getElementById('secret-input');
+  textarea.value='';
+  textarea.dispatchEvent(new Event('input'));
   document.getElementById('encrypt-btn').disabled=false;
   document.getElementById('encrypt-btn').textContent='Encrypt & Share';
   // Reset presets to defaults
   selectViewsPreset(1);
   selectExpiryPreset(5);
+  selectGenPreset('password');
+  document.getElementById('gen-section').classList.add('hidden');
+  document.getElementById('gen-toggle').innerHTML='&#9656; expand to generate a random secret';
   hideError();
   renderRecent();
 }
 
+var activeGenType='password';
+var genHints={
+  password:'24 chars \u2014 letters, numbers, symbols',
+  token:'32 chars \u2014 letters and numbers only',
+  hex:'64 chars \u2014 hex encoded (256-bit key)'
+};
+
+function selectGenPreset(type){
+  activeGenType=type;
+  var btns=document.querySelectorAll('#gen-presets .preset-btn');
+  btns.forEach(function(b){b.classList.remove('active')});
+  var clicked=document.querySelector('#gen-presets .preset-btn[data-gen="'+type+'"]');
+  if(clicked) clicked.classList.add('active');
+  document.getElementById('gen-hint').textContent=genHints[type];
+}
+
 function generateSecret(){
-  var type=document.getElementById('gen-type').value;
+  var textarea=document.getElementById('secret-input');
+  if(textarea.value.trim()&&!confirm('Replace existing content with generated secret?')) return;
+  var type=activeGenType;
   var length=32;
   var charset='';
   if(type==='password'){
@@ -759,12 +787,19 @@ function generateSecret(){
     do{var b=new Uint8Array(1);crypto.getRandomValues(b);r=b[0];}while(r>=max);
     result+=charset[r%charset.length];
   }
-  document.getElementById('secret-input').value=result;
+  textarea.value=result;
   // Trigger input event for byte counter
-  document.getElementById('secret-input').dispatchEvent(new Event('input'));
+  textarea.dispatchEvent(new Event('input'));
 }
 
 // Wire up event listeners (no inline handlers — CSP nonce requires this)
+document.getElementById('gen-toggle').addEventListener('click',function(){
+  var section=document.getElementById('gen-section');
+  var toggle=document.getElementById('gen-toggle');
+  var open=!section.classList.contains('hidden');
+  section.classList.toggle('hidden');
+  toggle.innerHTML=open?'&#9656; expand to generate a random secret':'&#9662; expand to generate a random secret';
+});
 document.getElementById('gen-btn').addEventListener('click',generateSecret);
 document.getElementById('encrypt-btn').addEventListener('click',createSecret);
 document.getElementById('copy-btn').addEventListener('click',copyLink);
