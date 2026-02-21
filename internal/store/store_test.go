@@ -415,3 +415,56 @@ func TestDeleteMissingSecret(t *testing.T) {
 		t.Fatalf("Delete nonexistent: got %v, want ErrNotFound", err)
 	}
 }
+
+// --- L12-04: Expose store DB handle and user_version ---
+
+func TestDB_ReturnsWorkingHandle(t *testing.T) {
+	s := newTestStore(t)
+	db := s.DB()
+	var result int
+	if err := db.QueryRow("SELECT 1").Scan(&result); err != nil {
+		t.Fatalf("DB().QueryRow SELECT 1: %v", err)
+	}
+	if result != 1 {
+		t.Fatalf("SELECT 1 returned %d, want 1", result)
+	}
+}
+
+func TestUserVersion_DefaultZero(t *testing.T) {
+	s := newTestStore(t)
+	v, err := s.UserVersion()
+	if err != nil {
+		t.Fatalf("UserVersion: %v", err)
+	}
+	if v != 0 {
+		t.Fatalf("default user_version = %d, want 0", v)
+	}
+}
+
+func TestSetUserVersion_RoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.SetUserVersion(42); err != nil {
+		t.Fatalf("SetUserVersion(42): %v", err)
+	}
+	v, err := s.UserVersion()
+	if err != nil {
+		t.Fatalf("UserVersion after set: %v", err)
+	}
+	if v != 42 {
+		t.Fatalf("user_version = %d, want 42", v)
+	}
+}
+
+func TestSetUserVersion_HostedRange(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.SetUserVersion(100); err != nil {
+		t.Fatalf("SetUserVersion(100): %v", err)
+	}
+	v, err := s.UserVersion()
+	if err != nil {
+		t.Fatalf("UserVersion after set: %v", err)
+	}
+	if v != 100 {
+		t.Fatalf("user_version = %d, want 100", v)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -244,6 +245,26 @@ func (s *Store) Status(id string) error {
 
 func (s *Store) Ping() error {
 	return s.db.Ping()
+}
+
+// DB returns the underlying *sql.DB handle.
+// The hosted repo uses this to run its own migrations and queries.
+// Core schema uses user_version 0-99. Hosted extensions use 100+.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
+// UserVersion returns the current PRAGMA user_version value.
+func (s *Store) UserVersion() (int, error) {
+	var v int
+	err := s.db.QueryRow("PRAGMA user_version").Scan(&v)
+	return v, err
+}
+
+// SetUserVersion sets PRAGMA user_version to the given value.
+func (s *Store) SetUserVersion(v int) error {
+	_, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", v))
+	return err
 }
 
 func (s *Store) Cleanup() (int, error) {
