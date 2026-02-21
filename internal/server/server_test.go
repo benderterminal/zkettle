@@ -461,6 +461,28 @@ func TestCSPContainsBaseURIAndFormAction(t *testing.T) {
 	}
 }
 
+func TestCSPNoUnsafeInlineStyleSrc(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, path := range []string{"/", "/create", "/s/some-id"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		csp := w.Header().Get("Content-Security-Policy")
+		if csp == "" {
+			t.Fatalf("GET %s: missing CSP header", path)
+		}
+		// Extract style-src directive
+		for _, directive := range strings.Split(csp, ";") {
+			directive = strings.TrimSpace(directive)
+			if strings.HasPrefix(directive, "style-src") {
+				if strings.Contains(directive, "'unsafe-inline'") {
+					t.Fatalf("GET %s: style-src still contains 'unsafe-inline': %s", path, csp)
+				}
+			}
+		}
+	}
+}
+
 func TestCreateEndpointRateLimit(t *testing.T) {
 	srv, _ := newTestServer(t)
 

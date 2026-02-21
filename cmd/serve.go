@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/taw/zkettle/internal/baseurl"
+	"github.com/taw/zkettle/internal/config"
 	"github.com/taw/zkettle/internal/server"
 	"github.com/taw/zkettle/internal/store"
 	"github.com/taw/zkettle/internal/tunnel"
@@ -22,9 +23,9 @@ import (
 
 func RunServe(args []string, webFS embed.FS) error {
 	f := flag.NewFlagSet("serve", flag.ExitOnError)
-	port := f.Int("port", 3000, "HTTP port")
-	host := f.String("host", "127.0.0.1", "HTTP host (use 0.0.0.0 to listen on all interfaces)")
-	dataDir := f.String("data", "./data", "Data directory")
+	port := f.Int("port", 0, "HTTP port")
+	host := f.String("host", "", "HTTP host (use 0.0.0.0 to listen on all interfaces)")
+	dataDir := f.String("data", "", "Data directory")
 	baseURLFlag := f.String("base-url", "", "Base URL for generated links")
 	corsOrigins := f.String("cors-origins", "", "Comma-separated list of allowed CORS origins")
 	tunnelFlag := f.Bool("tunnel", false, "Expose server via Cloudflare Quick Tunnel")
@@ -33,32 +34,67 @@ func RunServe(args []string, webFS embed.FS) error {
 		return err
 	}
 
-	if *tunnelFlag && *baseURLFlag != "" {
-		return fmt.Errorf("--tunnel and --base-url are mutually exclusive")
-	}
+	flagSet := make(map[string]bool)
+	f.Visit(func(fl *flag.Flag) { flagSet[fl.Name] = true })
 
-	bu := baseurl.New(fmt.Sprintf("http://localhost:%d", *port))
-	if *baseURLFlag != "" {
-		bu.Set(*baseURLFlag)
+	var flagCfg config.Config
+	if flagSet["port"] {
+		flagCfg.Port = *port
 	}
-
-	var origins []string
-	if *corsOrigins != "" {
+	if flagSet["host"] {
+		flagCfg.Host = *host
+	}
+	if flagSet["data"] {
+		flagCfg.Data = *dataDir
+	}
+	if flagSet["base-url"] {
+		flagCfg.BaseURL = *baseURLFlag
+	}
+	if flagSet["cors-origins"] {
+		var origins []string
 		for _, o := range strings.Split(*corsOrigins, ",") {
 			if trimmed := strings.TrimSpace(o); trimmed != "" {
 				origins = append(origins, trimmed)
 			}
 		}
+		flagCfg.CORSOrigins = origins
+	}
+	if flagSet["tunnel"] {
+		flagCfg.Tunnel = *tunnelFlag
+	}
+	if flagSet["trust-proxy"] {
+		flagCfg.TrustProxy = *trustProxy
 	}
 
-	for _, o := range origins {
+	defaults := config.Defaults()
+	fileCfg, filePath, err := config.LoadFile()
+	if err != nil {
+		return err
+	}
+	envCfg, envSet := config.LoadEnv()
+	resolved := config.Merge(defaults, fileCfg, filePath != "", envCfg, envSet, flagCfg, flagSet)
+
+	if resolved.Tunnel && resolved.BaseURL != "" {
+		return fmt.Errorf("--tunnel and --base-url are mutually exclusive")
+	}
+
+	bu := baseurl.New(fmt.Sprintf("http://localhost:%d", resolved.Port))
+	if resolved.BaseURL != "" {
+		bu.Set(resolved.BaseURL)
+	}
+
+	for _, o := range resolved.CORSOrigins {
 		if o == "*" {
 			fmt.Fprintln(os.Stderr, "WARNING: CORS origin '*' allows any website to make cross-origin requests, disabling implicit CSRF protection")
 			break
 		}
 	}
 
-	return runServe(*host, *port, *dataDir, bu, origins, *tunnelFlag, *trustProxy, webFS)
+	if filePath != "" {
+		slog.Info("loaded config file", "path", filePath)
+	}
+
+	return runServe(resolved.Host, resolved.Port, resolved.Data, bu, resolved.CORSOrigins, resolved.Tunnel, resolved.TrustProxy, webFS)
 }
 
 func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOrigins []string, useTunnel bool, trustProxy bool, webFS embed.FS) error {
@@ -81,6 +117,15 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 	defer stop()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	slog.Info("configuration",
+		"port", port,
+		"host", host,
+		"data", dataDir,
+		"base_url", bu.Get(),
+		"cors_origins", corsOrigins,
+		"trust_proxy", trustProxy,
+	)
 
 	cfg := server.Config{
 		BaseURL:     bu,

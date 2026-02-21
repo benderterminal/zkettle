@@ -142,7 +142,6 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
 }
 .custom-row{
   margin-top:.5rem;
-  display:none;
 }
 .btn-primary{
   display:block;
@@ -172,10 +171,9 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
   border-radius:4px;
   color:#ef4444;
   font-size:.8rem;
-  display:none;
 }
 /* Result section */
-.result{display:none}
+.result{}
 .result-label{
   font-size:.8rem;
   color:#777;
@@ -232,7 +230,6 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
   font-size:.75rem;
   color:#9DED9D;
   margin-top:.25rem;
-  display:none;
 }
 .revoke-row{
   display:flex;
@@ -263,6 +260,42 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
   font-size:.75rem;
   color:#888;
 }
+.hidden{display:none!important}
+.byte-counter-visible{display:block}
+.text-error{color:#ef4444!important}
+.text-muted{color:#888!important}
+.text-success{color:#9DED9D!important}
+.text-dimmed{color:#888!important}
+.recent-row{display:flex;align-items:center;gap:.75rem;padding:.4rem 0;border-bottom:1px solid #222;font-size:.75rem}
+.recent-info{flex:1;color:#888;overflow:hidden;text-overflow:ellipsis}
+.recent-btn-sm{font-size:.65rem;padding:.3rem .6rem}
+.recent-section-card{margin-top:1rem}
+.recent-heading{font-size:.8rem;color:#777;margin-bottom:.75rem}
+#byte-counter{font-size:.7rem;color:#555;text-align:right;margin-top:.25rem}
+.gen-row{display:flex;gap:.5rem;align-items:center;margin-top:.5rem}
+.gen-btn{
+  background:#222;
+  color:#9DED9D;
+  border:1px solid #333;
+  border-radius:4px;
+  padding:.4rem .75rem;
+  font-family:inherit;
+  font-size:.75rem;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:background .15s;
+}
+.gen-btn:hover{background:#2a2a2a}
+.gen-select{
+  background:#0a0a0a;
+  border:1px solid #333;
+  border-radius:4px;
+  color:#e0e0e0;
+  font-family:inherit;
+  font-size:.72rem;
+  padding:.35rem .5rem;
+  cursor:pointer;
+}
 noscript{
   display:block;
   text-align:center;
@@ -287,7 +320,15 @@ noscript{
 <div class="card" id="form-section">
   <label for="secret-input">secret content</label>
   <textarea id="secret-input" rows="4" placeholder="paste your secret here..." spellcheck="false"></textarea>
-  <div id="byte-counter" style="font-size:.7rem;color:#555;text-align:right;margin-top:.25rem;display:none"></div>
+  <div class="gen-row">
+    <button type="button" class="gen-btn" id="gen-btn">Generate</button>
+    <select class="gen-select" id="gen-type">
+      <option value="password">Password (mixed)</option>
+      <option value="token">Token (alphanumeric)</option>
+      <option value="hex">Hex key</option>
+    </select>
+  </div>
+  <div id="byte-counter" class="hidden"></div>
 
   <div class="options">
     <div class="option">
@@ -298,7 +339,7 @@ noscript{
         <button type="button" class="preset-btn" data-val="5">5</button>
         <button type="button" class="preset-btn" id="views-custom-btn">Custom</button>
       </div>
-      <div class="custom-row" id="views-custom-row">
+      <div class="custom-row hidden" id="views-custom-row">
         <input type="number" id="views-custom-input" min="1" max="100" value="10">
       </div>
     </div>
@@ -310,24 +351,24 @@ noscript{
         <button type="button" class="preset-btn" data-minutes="60">1 hr</button>
         <button type="button" class="preset-btn" id="expiry-custom-btn">Custom</button>
       </div>
-      <div class="custom-row" id="expiry-custom-row">
+      <div class="custom-row hidden" id="expiry-custom-row">
         <input type="datetime-local" id="expiry-custom-input">
       </div>
     </div>
   </div>
 
   <button class="btn-primary" id="encrypt-btn">Encrypt &amp; Share</button>
-  <div class="error-msg" id="error-msg"></div>
+  <div class="error-msg hidden" id="error-msg"></div>
 </div>
 
-<div class="card result" id="result-section">
+<div class="card result hidden" id="result-section">
   <p class="result-label">your secret link:</p>
   <div class="link-row">
     <input class="link-input" id="link-output" type="text" readonly>
     <button class="btn-copy" id="copy-btn">Copy Link</button>
   </div>
   <p class="warning">This link contains the decryption key. Anyone with it can view the secret.</p>
-  <div class="copy-toast" id="copy-toast">Copied to clipboard</div>
+  <div class="copy-toast hidden" id="copy-toast">Copied to clipboard</div>
   <div class="revoke-row">
     <button class="btn-revoke" id="revoke-btn">Revoke Secret</button>
     <span class="revoke-status" id="revoke-status"></span>
@@ -335,8 +376,8 @@ noscript{
   <button class="create-another" id="btn-another">Create Another</button>
 </div>
 
-<div class="card" id="recent-section" style="margin-top:1rem;display:none">
-  <p style="font-size:.8rem;color:#777;margin-bottom:.75rem">recent secrets</p>
+<div class="card hidden recent-section-card" id="recent-section">
+  <p class="recent-heading">recent secrets</p>
   <div id="recent-list"></div>
 </div>
 
@@ -372,7 +413,7 @@ function selectViewsPreset(val){
   btns.forEach(function(b){b.classList.remove('active')});
   var clicked=document.querySelector('#views-presets .preset-btn[data-val="'+val+'"]');
   if(clicked) clicked.classList.add('active');
-  document.getElementById('views-custom-row').style.display='none';
+  document.getElementById('views-custom-row').classList.add('hidden');
 }
 
 function showCustomViews(){
@@ -380,7 +421,7 @@ function showCustomViews(){
   var btns=document.querySelectorAll('#views-presets .preset-btn');
   btns.forEach(function(b){b.classList.remove('active')});
   document.getElementById('views-custom-btn').classList.add('active');
-  document.getElementById('views-custom-row').style.display='block';
+  document.getElementById('views-custom-row').classList.remove('hidden');
   document.getElementById('views-custom-input').focus();
 }
 
@@ -391,7 +432,7 @@ function selectExpiryPreset(minutes){
   btns.forEach(function(b){b.classList.remove('active')});
   var clicked=document.querySelector('#expiry-presets .preset-btn[data-minutes="'+minutes+'"]');
   if(clicked) clicked.classList.add('active');
-  document.getElementById('expiry-custom-row').style.display='none';
+  document.getElementById('expiry-custom-row').classList.add('hidden');
 }
 
 function showCustomExpiry(){
@@ -399,7 +440,7 @@ function showCustomExpiry(){
   var btns=document.querySelectorAll('#expiry-presets .preset-btn');
   btns.forEach(function(b){b.classList.remove('active')});
   document.getElementById('expiry-custom-btn').classList.add('active');
-  document.getElementById('expiry-custom-row').style.display='block';
+  document.getElementById('expiry-custom-row').classList.remove('hidden');
   // Pre-fill with current time + 1hr
   var input=document.getElementById('expiry-custom-input');
   var now=new Date();
@@ -433,18 +474,20 @@ function setupByteCounter(){
   textarea.addEventListener('input',function(){
     var bytes=new TextEncoder().encode(textarea.value).length;
     if(bytes>MAX_BYTES*0.8){
-      counter.style.display='block';
+      counter.classList.remove('hidden');
+      counter.classList.add('byte-counter-visible');
       var pct=Math.round(bytes/MAX_BYTES*100);
       counter.textContent=formatBytes(bytes)+' / '+formatBytes(MAX_BYTES)+' ('+pct+'%)';
       if(bytes>=MAX_BYTES){
-        counter.style.color='#ef4444';
+        counter.classList.add('text-error');counter.classList.remove('text-muted');
         encBtn.disabled=true;
       }else{
-        counter.style.color='#888';
+        counter.classList.remove('text-error');counter.classList.add('text-muted');
         encBtn.disabled=false;
       }
     }else{
-      counter.style.display='none';
+      counter.classList.remove('byte-counter-visible');
+      counter.classList.add('hidden');
       encBtn.disabled=false;
     }
   });
@@ -474,18 +517,17 @@ function renderRecent(){
   var tokens=loadTokens();
   var section=document.getElementById('recent-section');
   var list=document.getElementById('recent-list');
-  if(!tokens.length){section.style.display='none';return;}
-  section.style.display='block';
+  if(!tokens.length){section.classList.add('hidden');return;}
+  section.classList.remove('hidden');
   list.innerHTML='';
   tokens.forEach(function(t){
     var row=document.createElement('div');
-    row.style.cssText='display:flex;align-items:center;gap:.75rem;padding:.4rem 0;border-bottom:1px solid #222;font-size:.75rem';
+    row.className='recent-row';
     var info=document.createElement('span');
-    info.style.cssText='flex:1;color:#888;overflow:hidden;text-overflow:ellipsis';
+    info.className='recent-info';
     info.textContent=t.id.substring(0,12)+'… — '+new Date(t.createdAt).toLocaleString();
     var btn=document.createElement('button');
-    btn.className='btn-revoke';
-    btn.style.cssText='font-size:.65rem;padding:.3rem .6rem';
+    btn.className='btn-revoke recent-btn-sm';
     btn.textContent='Revoke';
     btn.addEventListener('click',(function(entry,btnEl){return function(){revokeRecent(entry,btnEl);};})(t,btn));
     row.appendChild(info);
@@ -525,11 +567,11 @@ function b64urlEncode(buf){
 function showError(msg){
   var el=document.getElementById('error-msg');
   el.textContent=msg;
-  el.style.display='block';
+  el.classList.remove('hidden');
 }
 
 function hideError(){
-  document.getElementById('error-msg').style.display='none';
+  document.getElementById('error-msg').classList.add('hidden');
 }
 
 async function createSecret(){
@@ -605,12 +647,12 @@ async function createSecret(){
 
     // Show result
     document.getElementById('page-title').textContent='share this link';
-    document.getElementById('form-section').style.display='none';
+    document.getElementById('form-section').classList.add('hidden');
     document.getElementById('link-output').value=shareURL;
     document.getElementById('revoke-btn').disabled=false;
     document.getElementById('revoke-btn').textContent='Revoke Secret';
     document.getElementById('revoke-status').textContent='';
-    document.getElementById('result-section').style.display='block';
+    document.getElementById('result-section').classList.remove('hidden');
 
   }catch(e){
     showError(e.message||'An unexpected error occurred.');
@@ -635,8 +677,8 @@ function copyLink(){
 
 function showToast(){
   var toast=document.getElementById('copy-toast');
-  toast.style.display='block';
-  setTimeout(function(){toast.style.display='none'},2000);
+  toast.classList.remove('hidden');
+  setTimeout(function(){toast.classList.add('hidden')},2000);
 }
 
 async function revokeSecret(){
@@ -655,26 +697,26 @@ async function revokeSecret(){
     });
     if(resp.status===204){
       status.textContent='Secret revoked.';
-      status.style.color='#9DED9D';
+      status.classList.add('text-success');status.classList.remove('text-error','text-dimmed');
       btn.textContent='Revoked';
       removeToken(currentSecretID);
       currentSecretID='';
       currentDeleteToken='';
     }else if(resp.status===404){
       status.textContent='Already gone.';
-      status.style.color='#888';
+      status.classList.add('text-dimmed');status.classList.remove('text-error','text-success');
       btn.textContent='Revoked';
     }else{
       var errBody='';
       try{errBody=(await resp.json()).error||'';}catch(e){}
       status.textContent='Failed'+(errBody?': '+errBody:'');
-      status.style.color='#ef4444';
+      status.classList.add('text-error');status.classList.remove('text-success','text-dimmed');
       btn.disabled=false;
       btn.textContent='Revoke Secret';
     }
   }catch(e){
     status.textContent='Network error.';
-    status.style.color='#ef4444';
+    status.classList.add('text-error');status.classList.remove('text-success','text-dimmed');
     btn.disabled=false;
     btn.textContent='Revoke Secret';
   }
@@ -684,8 +726,8 @@ function resetForm(){
   currentSecretID='';
   currentDeleteToken='';
   document.getElementById('page-title').textContent='create a secret';
-  document.getElementById('result-section').style.display='none';
-  document.getElementById('form-section').style.display='block';
+  document.getElementById('result-section').classList.add('hidden');
+  document.getElementById('form-section').classList.remove('hidden');
   document.getElementById('secret-input').value='';
   document.getElementById('encrypt-btn').disabled=false;
   document.getElementById('encrypt-btn').textContent='Encrypt & Share';
@@ -696,7 +738,34 @@ function resetForm(){
   renderRecent();
 }
 
+function generateSecret(){
+  var type=document.getElementById('gen-type').value;
+  var length=32;
+  var charset='';
+  if(type==='password'){
+    charset='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}';
+    length=24;
+  }else if(type==='token'){
+    charset='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    length=32;
+  }else if(type==='hex'){
+    charset='0123456789abcdef';
+    length=64;
+  }
+  var max=256-256%charset.length;
+  var result='';
+  for(var i=0;i<length;i++){
+    var r;
+    do{var b=new Uint8Array(1);crypto.getRandomValues(b);r=b[0];}while(r>=max);
+    result+=charset[r%charset.length];
+  }
+  document.getElementById('secret-input').value=result;
+  // Trigger input event for byte counter
+  document.getElementById('secret-input').dispatchEvent(new Event('input'));
+}
+
 // Wire up event listeners (no inline handlers — CSP nonce requires this)
+document.getElementById('gen-btn').addEventListener('click',generateSecret);
 document.getElementById('encrypt-btn').addEventListener('click',createSecret);
 document.getElementById('copy-btn').addEventListener('click',copyLink);
 document.getElementById('revoke-btn').addEventListener('click',revokeSecret);

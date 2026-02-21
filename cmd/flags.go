@@ -2,6 +2,15 @@ package cmd
 
 import "strings"
 
+// boolFlags is the set of flags that don't take a value argument.
+var boolFlags = map[string]bool{
+	"--json":        true,
+	"-q":            true,
+	"--quiet":       true,
+	"--tunnel":      true,
+	"--trust-proxy": true,
+}
+
 // reorderFlags moves flag-like arguments (starting with "-") before
 // positional arguments so Go's flag package parses them correctly.
 // Go's stdlib flag.Parse stops at the first non-flag argument, which
@@ -12,8 +21,8 @@ func reorderFlags(args []string) []string {
 	for i := 0; i < len(args); i++ {
 		if strings.HasPrefix(args[i], "-") {
 			flags = append(flags, args[i])
-			// If the next arg exists and isn't a flag, it's the flag's value
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			// Boolean flags don't consume the next argument as a value
+			if !boolFlags[args[i]] && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				flags = append(flags, args[i+1])
 				i++
 			}

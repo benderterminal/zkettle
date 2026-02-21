@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -13,10 +14,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// hashToken returns the SHA-256 hex digest of a delete token.
-func hashToken(token string) string {
+// hashToken returns the raw SHA-256 hash of a delete token.
+func hashToken(token string) []byte {
 	h := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(h[:])
+	return h[:]
 }
 
 var ErrNotFound = errors.New("secret not found")
@@ -36,8 +37,9 @@ type Store struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	mu    sync.Mutex
-	timer *time.Timer
+	mu        sync.Mutex
+	timer     *time.Timer
+	closeOnce sync.Once
 }
 
 func New(dbPath string) (*Store, error) {
@@ -145,7 +147,7 @@ func (s *Store) scheduleNextCleanup() {
 func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time, deleteToken string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO secrets (id, encrypted, iv, views_left, expires_at, delete_token) VALUES (?, ?, ?, ?, ?, ?)`,
-		id, encrypted, iv, viewsLeft, expiresAt.Unix(), hashToken(deleteToken),
+		id, encrypted, iv, viewsLeft, expiresAt.Unix(), hex.EncodeToString(hashToken(deleteToken)),
 	)
 	if err != nil {
 		return err
@@ -179,15 +181,19 @@ func (s *Store) Get(id string) (encrypted, iv []byte, err error) {
 }
 
 func (s *Store) Delete(id string, deleteToken string) error {
-	var storedHash string
-	err := s.db.QueryRow(`SELECT delete_token FROM secrets WHERE id = ?`, id).Scan(&storedHash)
+	var storedHex string
+	err := s.db.QueryRow(`SELECT delete_token FROM secrets WHERE id = ?`, id).Scan(&storedHex)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		return err
 	}
-	if storedHash != hashToken(deleteToken) {
+	storedHash, err := hex.DecodeString(storedHex)
+	if err != nil {
+		return ErrUnauthorized
+	}
+	if subtle.ConstantTimeCompare(storedHash, hashToken(deleteToken)) != 1 {
 		return ErrUnauthorized
 	}
 	_, err = s.db.Exec(`DELETE FROM secrets WHERE id = ?`, id)
@@ -250,7 +256,9 @@ func (s *Store) Cleanup() (int, error) {
 }
 
 func (s *Store) Close() {
-	s.cancel()
-	s.wg.Wait()
-	s.db.Close()
+	s.closeOnce.Do(func() {
+		s.cancel()
+		s.wg.Wait()
+		s.db.Close()
+	})
 }
