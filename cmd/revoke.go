@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/taw/zkettle/internal/id"
+	"github.com/taw/zkettle/id"
 )
 
 func RunRevoke(args []string) error {

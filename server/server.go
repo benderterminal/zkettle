@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taw/zkettle/internal/auth"
-	"github.com/taw/zkettle/internal/baseurl"
-	"github.com/taw/zkettle/internal/id"
-	"github.com/taw/zkettle/internal/store"
+	"github.com/taw/zkettle/auth"
+	"github.com/taw/zkettle/baseurl"
+	"github.com/taw/zkettle/id"
+	"github.com/taw/zkettle/store"
 )
 
 const maxBodySize = 1024 * 1024 // 1MB

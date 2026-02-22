@@ -12,8 +12,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/taw/zkettle/internal/auth"
-	"github.com/taw/zkettle/internal/store"
+	"github.com/taw/zkettle/auth"
+	"github.com/taw/zkettle/store"
 )
 
 func newIntegrationServer(t *testing.T) (*httptest.Server, *store.Store) {
