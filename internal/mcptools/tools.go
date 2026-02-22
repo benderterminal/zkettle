@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,13 +16,16 @@ import (
 	"github.com/benderterminal/zkettle/baseurl"
 	"github.com/benderterminal/zkettle/internal/crypto"
 	"github.com/benderterminal/zkettle/internal/generate"
+	"github.com/benderterminal/zkettle/internal/limits"
 	"github.com/benderterminal/zkettle/id"
 	"github.com/benderterminal/zkettle/store"
 )
 
-// isPrivateIP returns true if the IP is in a private, loopback, or link-local range.
-func isPrivateIP(ip net.IP) bool {
-	privateRanges := []string{
+// privateNetworks is parsed once at init; used by isPrivateIP.
+var privateNetworks []*net.IPNet
+
+func init() {
+	for _, cidr := range []string{
 		"10.0.0.0/8",
 		"172.16.0.0/12",
 		"192.168.0.0/16",
@@ -30,9 +34,15 @@ func isPrivateIP(ip net.IP) bool {
 		"::1/128",
 		"fc00::/7",
 		"fe80::/10",
-	}
-	for _, cidr := range privateRanges {
+	} {
 		_, network, _ := net.ParseCIDR(cidr)
+		privateNetworks = append(privateNetworks, network)
+	}
+}
+
+// isPrivateIP returns true if the IP is in a private, loopback, or link-local range.
+func isPrivateIP(ip net.IP) bool {
+	for _, network := range privateNetworks {
 		if network.Contains(ip) {
 			return true
 		}
@@ -107,10 +117,10 @@ type RevokeSecretInput struct {
 
 type ListSecretsInput struct{}
 
-// maxContentSize is the plaintext size limit before encryption. The server's
-// maxBodySize (1MB) accommodates this after base64 encoding + JSON overhead.
-// See also: maxBodySize in server/server.go and maxSecretSize in cmd/create.go.
-const maxContentSize = 500 * 1024 // 500KB plaintext limit
+// maxContentSize is the plaintext size limit before encryption. Derived from
+// limits.DefaultMaxSecretSize. The server's maxBodySize (1MB) accommodates
+// this after base64 encoding + JSON overhead.
+const maxContentSize = limits.DefaultMaxSecretSize
 
 type GenerateSecretInput struct {
 	Length  int    `json:"length,omitempty" jsonschema:"Length of generated secret in characters. Default 32. Range: 1-4096."`
@@ -162,17 +172,17 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 
 		views := args.Views
 		if views == 0 {
-			views = 1
+			views = limits.DefaultViews
 		}
-		if views < 1 || views > 100 {
-			return nil, nil, fmt.Errorf("views must be 1-100")
+		if views < limits.MinViews || views > limits.MaxViews {
+			return nil, nil, fmt.Errorf("views must be %d-%d", limits.MinViews, limits.MaxViews)
 		}
 		minutes := args.Minutes
 		if minutes == 0 {
-			minutes = 1440 // 24 hours
+			minutes = limits.DefaultMinutes
 		}
-		if minutes < 1 || minutes > 43200 {
-			return nil, nil, fmt.Errorf("minutes must be 1-43200 (30 days)")
+		if minutes < limits.MinMinutes || minutes > limits.MaxMinutes {
+			return nil, nil, fmt.Errorf("minutes must be %d-%d (%d days)", limits.MinMinutes, limits.MaxMinutes, limits.MaxMinutes/1440)
 		}
 
 		ciphertext, iv, key, err := crypto.Encrypt([]byte(args.Content))
@@ -256,7 +266,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 				Encrypted string `json:"encrypted"`
 				IV        string `json:"iv"`
 			}
-			if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+			if err := json.NewDecoder(io.LimitReader(resp.Body, maxContentSize*2)).Decode(&data); err != nil {
 				return nil, nil, fmt.Errorf("decoding response: %w", err)
 			}
 
@@ -358,17 +368,17 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 
 		views := args.Views
 		if views == 0 {
-			views = 1
+			views = limits.DefaultViews
 		}
-		if views < 1 || views > 100 {
-			return nil, nil, fmt.Errorf("views must be 1-100")
+		if views < limits.MinViews || views > limits.MaxViews {
+			return nil, nil, fmt.Errorf("views must be %d-%d", limits.MinViews, limits.MaxViews)
 		}
 		minutes := args.Minutes
 		if minutes == 0 {
-			minutes = 1440
+			minutes = limits.DefaultMinutes
 		}
-		if minutes < 1 || minutes > 43200 {
-			return nil, nil, fmt.Errorf("minutes must be 1-43200 (30 days)")
+		if minutes < limits.MinMinutes || minutes > limits.MaxMinutes {
+			return nil, nil, fmt.Errorf("minutes must be %d-%d (%d days)", limits.MinMinutes, limits.MaxMinutes, limits.MaxMinutes/1440)
 		}
 
 		ciphertext, iv, key, err := crypto.Encrypt([]byte(secret))

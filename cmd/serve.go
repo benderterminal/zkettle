@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/benderterminal/zkettle/baseurl"
-	"github.com/benderterminal/zkettle/internal/config"
 	"github.com/benderterminal/zkettle/server"
 	"github.com/benderterminal/zkettle/store"
+	"github.com/benderterminal/zkettle/internal/config"
 	"github.com/benderterminal/zkettle/internal/tunnel"
 )
 
@@ -92,48 +92,16 @@ func RunServe(args []string, webFS embed.FS, version string) error {
 		flagCfg.Metrics = *metricsFlag
 	}
 
-	defaults := config.Defaults()
-	fileCfg, filePath, fileSet, err := config.LoadFile()
+	resolved, bu, err := initRuntime(flagCfg, flagSet)
 	if err != nil {
 		return err
 	}
-	envCfg, envSet := config.LoadEnv()
-	resolved := config.Merge(defaults, fileCfg, fileSet, envCfg, envSet, flagCfg, flagSet)
-
-	if err := resolved.Validate(); err != nil {
-		return err
-	}
-
-	if resolved.Tunnel && resolved.BaseURL != "" {
-		return fmt.Errorf("--tunnel and --base-url are mutually exclusive")
-	}
-	if resolved.Tunnel && resolved.TLSCert != "" {
-		return fmt.Errorf("--tunnel and --tls-cert/--tls-key are mutually exclusive")
-	}
-
-	bu := baseurl.New(fmt.Sprintf("http://localhost:%d", resolved.Port))
-	if resolved.BaseURL != "" {
-		bu.Set(resolved.BaseURL)
-	}
-
-	// Initialize slog before any logging
-	var logHandler slog.Handler
-	if resolved.LogFormat == "json" {
-		logHandler = slog.NewJSONHandler(os.Stderr, nil)
-	} else {
-		logHandler = slog.NewTextHandler(os.Stderr, nil)
-	}
-	slog.SetDefault(slog.New(logHandler))
 
 	for _, o := range resolved.CORSOrigins {
 		if o == "*" {
 			slog.Warn("wildcard CORS origin allows cross-origin requests, disabling implicit CSRF protection")
 			break
 		}
-	}
-
-	if filePath != "" {
-		slog.Info("loaded config file", "path", filePath)
 	}
 
 	return runServe(resolved, bu, webFS, version)

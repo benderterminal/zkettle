@@ -374,11 +374,11 @@ Delete a secret. Requires `Authorization: Bearer {delete_token}` header.
 
 Response: 204 No Content
 
-Errors: 400 (invalid ID format), 401 (missing token), 403 (wrong token), 404 (not found)
+Errors: 400 (invalid ID format), 401 (missing token), 404 (not found or wrong token)
 
 ### GET /health
 
-Health check. Returns 200 with `{"status":"ok"}`.
+Health check. Returns 200 with `{"status":"ok"}`, or 503 with `{"status":"error"}` if the database is unavailable.
 
 ### GET /s/{id}
 

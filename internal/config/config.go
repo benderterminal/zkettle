@@ -234,3 +234,29 @@ func Merge(defaults, file Config, fileSet map[string]bool, env Config, envSet ma
 	mergeLayer(&result, flags, flagSet)
 	return result
 }
+
+// ResolveAll loads config from file and env, merges with flags and defaults,
+// validates, and checks mutual exclusivity constraints. Returns the resolved
+// config and the config file path (empty if none found).
+func ResolveAll(flagCfg Config, flagSet map[string]bool) (Config, string, error) {
+	defaults := Defaults()
+	fileCfg, filePath, fileSet, err := LoadFile()
+	if err != nil {
+		return Config{}, "", err
+	}
+	envCfg, envSet := LoadEnv()
+	resolved := Merge(defaults, fileCfg, fileSet, envCfg, envSet, flagCfg, flagSet)
+
+	if err := resolved.Validate(); err != nil {
+		return Config{}, "", err
+	}
+
+	if resolved.Tunnel && resolved.BaseURL != "" {
+		return Config{}, "", fmt.Errorf("--tunnel and --base-url are mutually exclusive")
+	}
+	if resolved.Tunnel && resolved.TLSCert != "" {
+		return Config{}, "", fmt.Errorf("--tunnel and --tls-cert/--tls-key are mutually exclusive")
+	}
+
+	return resolved, filePath, nil
+}

@@ -12,7 +12,7 @@ Add to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "zkettle": {
-      "command": "/path/to/zkettle",
+      "command": "/absolute/path/to/zkettle",
       "args": ["mcp", "--port", "3001"]
     }
   }
@@ -22,7 +22,7 @@ Add to your `claude_desktop_config.json`:
 ### Claude Code
 
 ```bash
-claude mcp add zkettle -- /path/to/zkettle mcp --port 3001
+claude mcp add -s user zkettle -- /absolute/path/to/zkettle mcp --port 3001
 ```
 
 Or add to `.claude/settings.local.json`:
@@ -31,7 +31,7 @@ Or add to `.claude/settings.local.json`:
 {
   "mcpServers": {
     "zkettle": {
-      "command": "/path/to/zkettle",
+      "command": "/absolute/path/to/zkettle",
       "args": ["mcp", "--port", "3001"]
     }
   }
@@ -46,7 +46,7 @@ Add to your Cursor MCP settings (`.cursor/mcp.json`):
 {
   "mcpServers": {
     "zkettle": {
-      "command": "/path/to/zkettle",
+      "command": "/absolute/path/to/zkettle",
       "args": ["mcp", "--port", "3001"]
     }
   }
@@ -61,7 +61,7 @@ Add to your Cursor MCP settings (`.cursor/mcp.json`):
 | `--host` | `127.0.0.1` | Listen address |
 | `--data` | `./data` | Data directory for SQLite database |
 | `--base-url` | `http://localhost:{port}` | Base URL for generated secret links |
-| `--tunnel` | off | Expose server via Cloudflare Quick Tunnel |
+| `--tunnel` | off | Expose server via Cloudflare Quick Tunnel (mutually exclusive with `--base-url`) |
 | `--trust-proxy` | off | Trust `X-Forwarded-For` headers (behind a reverse proxy) |
 | `--log-format` | `text` | Log format: `json` or `text` |
 

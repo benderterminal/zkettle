@@ -262,7 +262,7 @@ func (s *Store) Ping() error {
 }
 
 func (s *Store) Cleanup() (int, error) {
-	res, err := s.db.Exec(`DELETE FROM secrets WHERE expires_at <= unixepoch()`)
+	res, err := s.db.Exec(`DELETE FROM secrets WHERE expires_at <= unixepoch() OR views_left <= 0`)
 	if err != nil {
 		return 0, err
 	}

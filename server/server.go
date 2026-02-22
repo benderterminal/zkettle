@@ -15,6 +15,7 @@ import (
 
 	"github.com/benderterminal/zkettle/baseurl"
 	"github.com/benderterminal/zkettle/id"
+	"github.com/benderterminal/zkettle/internal/limits"
 	"github.com/benderterminal/zkettle/store"
 )
 
@@ -195,7 +196,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	maxSize := s.cfg.MaxSecretSize
 	if maxSize == 0 {
-		maxSize = 512000 // 500KB default
+		maxSize = limits.DefaultMaxSecretSize
 	}
 	if len(encBytes) > maxSize {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("encrypted exceeds %dKB limit", maxSize/1024))
@@ -213,17 +214,17 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Views == 0 {
-		req.Views = 1
+		req.Views = limits.DefaultViews
 	}
-	if req.Views < 1 || req.Views > 100 {
-		writeError(w, http.StatusBadRequest, "views must be 1-100")
+	if req.Views < limits.MinViews || req.Views > limits.MaxViews {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("views must be %d-%d", limits.MinViews, limits.MaxViews))
 		return
 	}
 	if req.Minutes == 0 {
-		req.Minutes = 1440 // 24 hours
+		req.Minutes = limits.DefaultMinutes
 	}
-	if req.Minutes < 1 || req.Minutes > 43200 {
-		writeError(w, http.StatusBadRequest, "minutes must be 1-43200 (30 days)")
+	if req.Minutes < limits.MinMinutes || req.Minutes > limits.MaxMinutes {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("minutes must be %d-%d (%d days)", limits.MinMinutes, limits.MaxMinutes, limits.MaxMinutes/1440))
 		return
 	}
 
@@ -286,12 +287,8 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.Delete(secretID, token); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrUnauthorized) {
 			writeError(w, http.StatusNotFound, "secret not found")
-			return
-		}
-		if errors.Is(err, store.ErrUnauthorized) {
-			writeError(w, http.StatusForbidden, "invalid delete token")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to delete secret")
@@ -347,7 +344,8 @@ func (s *Server) servePage(w http.ResponseWriter, name string) {
 	}
 	nonce := base64.StdEncoding.EncodeToString(nonceBytes)
 
-	// Inject nonce into all <script> and <style> tags
+	// Inject nonce into all <script> and <style> tags.
+	// Safe for current embedded templates; revisit if HTML structure grows complex.
 	html := strings.ReplaceAll(string(data), "<script>", fmt.Sprintf(`<script nonce="%s">`, nonce))
 	html = strings.ReplaceAll(html, "<style>", fmt.Sprintf(`<style nonce="%s">`, nonce))
 
@@ -375,23 +373,30 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"ok"}`))
 }
 
-func (s *Server) handleAdminListSecrets(w http.ResponseWriter, r *http.Request) {
+// requireAdmin checks the admin token and writes an error response if unauthorized.
+// Returns true if the request is authorized, false otherwise.
+func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	if s.cfg.AdminToken == "" {
 		writeError(w, http.StatusNotFound, "not found")
-		return
+		return false
 	}
-
 	token := ""
 	if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
 		token = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 	if token == "" {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
+		return false
 	}
-
 	if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleAdminListSecrets(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
 		return
 	}
 
@@ -423,21 +428,7 @@ func (s *Server) handleAdminListSecrets(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.AdminToken == "" {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-
-	token := ""
-	if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
-		token = strings.TrimPrefix(authHeader, "Bearer ")
-	}
-	if token == "" {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+	if !s.requireAdmin(w, r) {
 		return
 	}
 

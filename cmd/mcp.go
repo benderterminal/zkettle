@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/benderterminal/zkettle/baseurl"
 	"github.com/benderterminal/zkettle/internal/config"
 	"github.com/benderterminal/zkettle/internal/mcptools"
 	"github.com/benderterminal/zkettle/server"
@@ -64,28 +63,9 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 		flagCfg.LogFormat = *logFormat
 	}
 
-	defaults := config.Defaults()
-	fileCfg, filePath, fileSet, err := config.LoadFile()
+	resolved, bu, err := initRuntime(flagCfg, flagSet)
 	if err != nil {
 		return err
-	}
-	envCfg, envSet := config.LoadEnv()
-	resolved := config.Merge(defaults, fileCfg, fileSet, envCfg, envSet, flagCfg, flagSet)
-
-	if err := resolved.Validate(); err != nil {
-		return err
-	}
-
-	if resolved.Tunnel && resolved.BaseURL != "" {
-		return fmt.Errorf("--tunnel and --base-url are mutually exclusive")
-	}
-	if resolved.Tunnel && resolved.TLSCert != "" {
-		return fmt.Errorf("--tunnel and --tls-cert/--tls-key are mutually exclusive")
-	}
-
-	bu := baseurl.New(fmt.Sprintf("http://localhost:%d", resolved.Port))
-	if resolved.BaseURL != "" {
-		bu.Set(resolved.BaseURL)
 	}
 
 	if err := os.MkdirAll(resolved.Data, 0o700); err != nil {
@@ -106,18 +86,6 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
-	var logHandler slog.Handler
-	if resolved.LogFormat == "json" {
-		logHandler = slog.NewJSONHandler(os.Stderr, nil)
-	} else {
-		logHandler = slog.NewTextHandler(os.Stderr, nil)
-	}
-	slog.SetDefault(slog.New(logHandler))
-
-	if filePath != "" {
-		slog.Info("loaded config file", "path", filePath)
-	}
 
 	cfg := server.Config{
 		BaseURL:        bu,
@@ -140,13 +108,23 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	}
 
 	// Start HTTP server in background
+	httpErrCh := make(chan error, 1)
 	go func() {
 		PrintBannerFull(os.Stderr)
 		slog.Info("HTTP server started", "host", resolved.Host, "port", resolved.Port)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("HTTP server failed", "error", err)
+			httpErrCh <- err
 		}
 	}()
+
+	// Brief pause to catch immediate startup failures (e.g. port in use)
+	select {
+	case err := <-httpErrCh:
+		st.Close()
+		return fmt.Errorf("HTTP server failed to start: %w", err)
+	case <-time.After(100 * time.Millisecond):
+		// HTTP server started successfully
+	}
 
 	if resolved.Tunnel {
 		tun, err := tunnel.Start(ctx, resolved.Port)

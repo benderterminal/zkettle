@@ -519,8 +519,8 @@ function pruneExpiredTokens(){
   var now=new Date();
   var kept=tokens.filter(function(t){
     if(t.expiresAt&&new Date(t.expiresAt)<now) return false;
-    // Remove entries older than 7 days even without expiresAt
-    if(t.createdAt&&(now-new Date(t.createdAt))>7*24*3600000) return false;
+    // Remove entries older than 30 days (matches max TTL) even without expiresAt
+    if(t.createdAt&&(now-new Date(t.createdAt))>30*24*3600000) return false;
     return true;
   });
   if(kept.length!==tokens.length){
@@ -594,7 +594,7 @@ async function revokeRecent(entry,btn){
   btn.disabled=true;
   btn.textContent='Revoking...';
   try{
-    var resp=await fetch('/api/secrets/'+entry.id,{
+    var resp=await fetch('/api/secrets/'+encodeURIComponent(entry.id),{
       method:'DELETE',
       headers:{'Authorization':'Bearer '+entry.deleteToken}
     });
@@ -730,6 +730,7 @@ async function createSecret(){
     revokeStatus.classList.remove('text-success','text-error','text-dimmed');
     document.getElementById('result-section').classList.remove('hidden');
     renderRecent();
+    startRecentPoll();
 
   }catch(e){
     showError(e.message||'An unexpected error occurred.');
@@ -768,7 +769,7 @@ async function revokeSecret(){
   status.textContent='';
 
   try{
-    var resp=await fetch('/api/secrets/'+currentSecretID,{
+    var resp=await fetch('/api/secrets/'+encodeURIComponent(currentSecretID),{
       method:'DELETE',
       headers:{'Authorization':'Bearer '+currentDeleteToken}
     });
@@ -886,31 +887,35 @@ pruneExpiredTokens();
 renderRecent();
 
 // Refresh recent statuses every 30s so expired secrets update without page reload
-var recentPoll=setInterval(function(){
-  var section=document.getElementById('recent-section');
-  if(section.classList.contains('hidden')){
-    clearInterval(recentPoll);
-    return;
-  }
-  var tokens=loadTokens();
-  // All expired — stop polling
-  var hasActive=false;
-  tokens.forEach(function(t){
-    // Skip entries already marked expired in the DOM
-    var row=document.querySelector('.recent-row[data-secret-id="'+CSS.escape(t.id)+'"]');
-    if(!row) return;
-    var btn=row.querySelector('.btn-revoke');
-    if(btn&&btn.textContent==='Expired') return;
-    hasActive=true;
-    fetch('/api/secrets/'+encodeURIComponent(t.id)+'/status').then(function(resp){
-      if(resp.status===404){
-        var info=row.querySelector('.recent-info');
-        if(btn) markExpired(btn,info);
-      }
-    }).catch(function(){});
-  });
-  if(!hasActive) clearInterval(recentPoll);
-},30000);
+var recentPoll=null;
+function startRecentPoll(){
+  if(recentPoll) clearInterval(recentPoll);
+  recentPoll=setInterval(function(){
+    var section=document.getElementById('recent-section');
+    if(section.classList.contains('hidden')){
+      clearInterval(recentPoll);
+      recentPoll=null;
+      return;
+    }
+    var tokens=loadTokens();
+    var hasActive=false;
+    tokens.forEach(function(t){
+      var row=document.querySelector('.recent-row[data-secret-id="'+CSS.escape(t.id)+'"]');
+      if(!row) return;
+      var btn=row.querySelector('.btn-revoke');
+      if(btn&&btn.textContent==='Expired') return;
+      hasActive=true;
+      fetch('/api/secrets/'+encodeURIComponent(t.id)+'/status').then(function(resp){
+        if(resp.status===404){
+          var info=row.querySelector('.recent-info');
+          if(btn) markExpired(btn,info);
+        }
+      }).catch(function(){});
+    });
+    if(!hasActive){clearInterval(recentPoll);recentPoll=null;}
+  },30000);
+}
+startRecentPoll();
 })();
 </script>
 </body>

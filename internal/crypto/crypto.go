@@ -48,6 +48,14 @@ func Decrypt(ciphertext, iv, key []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
+// Zero overwrites a byte slice with zeros. Best-effort defense-in-depth;
+// Go's GC does not guarantee that copies won't persist in memory.
+func Zero(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
 // EncodeKey encodes a key as base64url without padding.
 func EncodeKey(key []byte) string {
 	return base64.RawURLEncoding.EncodeToString(key)

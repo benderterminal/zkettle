@@ -12,12 +12,13 @@ import (
 	"strings"
 
 	"github.com/benderterminal/zkettle/internal/crypto"
+	"github.com/benderterminal/zkettle/internal/limits"
 )
 
-// maxSecretSize is the plaintext size limit before encryption. The server's
-// maxBodySize (1MB) accommodates this after base64 encoding + JSON overhead.
-// See also: maxBodySize in server/server.go and maxContentSize in internal/mcptools/tools.go.
-const maxSecretSize = 500 * 1024 // 500KB
+// maxSecretSize is the plaintext size limit before encryption. Derived from
+// limits.DefaultMaxSecretSize. The server's maxBodySize (1MB) accommodates
+// this after base64 encoding + JSON overhead.
+const maxSecretSize = limits.DefaultMaxSecretSize
 
 func RunCreate(args []string) error {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)

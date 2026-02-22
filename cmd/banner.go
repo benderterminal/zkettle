@@ -8,16 +8,6 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
-const bannerShort = `
-        ) )
-       ( (
-     _  ~)~
- ___| |/ /
-|_  / ' /
- / /| . \
-/___|_|\_\
-`
-
 const bannerFull = `
         ) )
        ( (
@@ -27,11 +17,6 @@ const bannerFull = `
  / /| . \  __/ |_| |_| |  __/
 /___|_|\_\___|\__|\__|_|\___|
 `
-
-// PrintBanner writes the short zK logo to the given writer.
-func PrintBanner(w io.Writer) {
-	fmt.Fprint(w, bannerShort)
-}
 
 // PrintBannerFull writes the full zKettle logo to the given writer.
 // Suppressed when the writer is not a terminal (e.g. piped or redirected).
