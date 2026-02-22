@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/benderterminal/zkettle/internal/generate"
+	"github.com/taw/zkettle/internal/generate"
 )
 
 func RunGenerate(args []string) error {

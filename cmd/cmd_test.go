@@ -11,9 +11,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/benderterminal/zkettle/baseurl"
-	"github.com/benderterminal/zkettle/server"
-	"github.com/benderterminal/zkettle/store"
+	"github.com/taw/zkettle/baseurl"
+	"github.com/taw/zkettle/server"
+	"github.com/taw/zkettle/store"
 )
 
 // testServer creates an httptest server with a real store and server handler.

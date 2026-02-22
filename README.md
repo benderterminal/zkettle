@@ -336,6 +336,10 @@ Response: 204 No Content
 
 Errors: 400 (invalid ID format), 401 (missing token), 403 (wrong token), 404 (not found)
 
+### GET /api/secrets/{id}/status
+
+Pre-check whether a secret is available without consuming a view. Returns 200 with `{"status":"available"}` if the secret exists and has remaining views. Returns 404 if expired, consumed, or nonexistent.
+
 ### GET /health
 
 Health check. Returns 200 with `{"status":"ok"}`.
@@ -349,7 +353,7 @@ Serves the web viewer HTML. The decryption key is in the URL fragment (`#key`) a
 - **Zero-knowledge**: The server stores only AES-256-GCM ciphertext. The decryption key lives in the URL fragment, which browsers never send to the server.
 - **Client-side encryption**: All encryption and decryption happens locally — in the browser (Web Crypto API), CLI, or MCP server process. The zKettle HTTP server never sees plaintext.
 - **Expiring**: Secrets auto-delete after the configured number of views or time limit.
-- **Composable auth**: The core server runs with no authentication — anyone with the URL can view a secret. When used as a library, a hosted instance can plug in an `AuthFunc` to enforce recipient gating (secrets restricted to a specific user by email or wallet address).
+- **Composable library**: When importing zKettle as a Go library, use `ExtraRoutes` and `Middleware` to extend the server with custom routes and middleware for any deployment.
 
 ## Building
 

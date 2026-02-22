@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/benderterminal/zkettle/internal/generate"
+	"github.com/taw/zkettle/internal/generate"
 )
 
 func TestGenerateDefaultLength(t *testing.T) {

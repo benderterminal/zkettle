@@ -9,8 +9,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/benderterminal/zkettle/internal/crypto"
-	"github.com/benderterminal/zkettle/id"
+	"github.com/taw/zkettle/internal/crypto"
+	"github.com/taw/zkettle/id"
 )
 
 func RunRead(args []string) error {

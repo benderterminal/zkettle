@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/benderterminal/zkettle/internal/crypto"
+	"github.com/taw/zkettle/internal/crypto"
 )
 
 // maxSecretSize is the plaintext size limit before encryption. The server's

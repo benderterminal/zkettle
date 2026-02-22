@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/benderterminal/zkettle/cmd"
+	"github.com/taw/zkettle/cmd"
 )
 
 //go:embed web
