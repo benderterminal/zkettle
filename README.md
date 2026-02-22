@@ -22,6 +22,14 @@ curl -fsSL https://github.com/benderterminal/zkettle/releases/latest/download/zk
 git clone https://github.com/benderterminal/zkettle.git && cd zkettle && make install
 ```
 
+### Via AI agent
+
+Paste this prompt into Claude Code, Cursor, or any MCP-compatible agent:
+
+```
+I want to set up zKettle — a self-hosted zero-knowledge secret sharing tool. Install it with go install github.com/benderterminal/zkettle@latest, then read the MCP setup instructions in the README at https://github.com/benderterminal/zkettle. When configuring the MCP server, use the absolute path to the installed binary (find it with which zkettle or check ~/go/bin/). Once configured, test the full workflow using the CLI: create a secret, read it back, and revoke it. Note that MCP servers are loaded at startup — the new tools won't be available until the next terminal session.
+```
+
 ## Quick Start
 
 ```bash
