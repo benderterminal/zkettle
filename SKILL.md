@@ -33,6 +33,8 @@ git clone https://github.com/benderterminal/zkettle.git && cd zkettle && make in
 
 **Before configuring, ask the user:** Do you want zKettle to generate **public URLs** (recommended — shareable with anyone on the internet) or **local-only URLs** (only accessible on your machine/network)? Public mode uses a free Cloudflare Quick Tunnel — no account or DNS setup required. It works for both local and remote sharing. Only use local mode if sharing is strictly limited to your local network.
 
+> **Important:** Use the **absolute path** to the `zkettle` binary in your MCP config. Many MCP clients (including Claude Code) do not inherit your shell's PATH, so a bare `zkettle` command will silently fail to start.
+
 Add to your MCP client configuration (Claude Code, Claude Desktop, or any MCP-compatible agent):
 
 **Public URLs (recommended)** — secrets shareable with anyone via Cloudflare Quick Tunnel:
@@ -41,7 +43,7 @@ Add to your MCP client configuration (Claude Code, Claude Desktop, or any MCP-co
 {
   "mcpServers": {
     "zkettle": {
-      "command": "zkettle",
+      "command": "/absolute/path/to/zkettle",
       "args": ["mcp", "--port", "3001", "--tunnel"]
     }
   }
@@ -54,11 +56,21 @@ Add to your MCP client configuration (Claude Code, Claude Desktop, or any MCP-co
 {
   "mcpServers": {
     "zkettle": {
-      "command": "zkettle",
+      "command": "/absolute/path/to/zkettle",
       "args": ["mcp", "--port", "3001"]
     }
   }
 }
+```
+
+**Claude Code shortcut** — use `claude mcp add` to configure with the correct scope and path automatically:
+
+```bash
+# Public URLs (recommended)
+claude mcp add -s user zkettle -- /absolute/path/to/zkettle mcp --port 3001 --tunnel
+
+# Local only
+claude mcp add -s user zkettle -- /absolute/path/to/zkettle mcp --port 3001
 ```
 
 The MCP server starts an HTTP backend on the specified port and communicates with the agent over stdio. All encryption and decryption happens locally — the server never sees plaintext.

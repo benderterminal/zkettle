@@ -166,15 +166,27 @@ Returns JSON metrics at `GET /metrics`:
 
 zKettle includes an MCP server for use with Claude Desktop, Claude Code, or any MCP-compatible agent.
 
+> **Important:** Use the **absolute path** to the `zkettle` binary. Many MCP clients do not inherit your shell's PATH, so a bare `zkettle` command will silently fail to start.
+
+Add to your MCP client's configuration file:
+
 ```json
 {
   "mcpServers": {
     "zkettle": {
-      "command": "/path/to/zkettle",
-      "args": ["mcp", "--port", "3001", "--base-url", "https://your-domain.com"]
+      "command": "/absolute/path/to/zkettle",
+      "args": ["mcp", "--port", "3001", "--tunnel"]
     }
   }
 }
+```
+
+Use `--tunnel` for public shareable URLs via Cloudflare Quick Tunnel (no account required). Omit it for local-only access. Use `--base-url https://your-domain.com` if you have a custom domain.
+
+**Claude Code shortcut:**
+
+```bash
+claude mcp add -s user zkettle -- /absolute/path/to/zkettle mcp --port 3001 --tunnel
 ```
 
 The MCP server starts an HTTP backend on the specified port and communicates with the agent over stdio. All encryption and decryption happens locally — in the browser (Web Crypto API), CLI, or MCP server process. The zKettle HTTP server never sees plaintext.
