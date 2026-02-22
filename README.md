@@ -126,6 +126,10 @@ Returns 404 if expired, already consumed, or nonexistent.
 
 Delete a secret. Requires `Authorization: Bearer {delete_token}` header. Returns 204.
 
+### GET /api/secrets/:id/status
+
+Pre-check whether a secret is available without consuming a view. Returns 200 with `{"status":"available"}` if the secret exists and has remaining views. Returns 404 if expired, consumed, or nonexistent.
+
 ### GET /health
 
 Health check. Returns 200 with `{"status":"ok"}`.
@@ -139,7 +143,7 @@ Serves the web viewer HTML. The decryption key is in the URL fragment (`#key`) a
 - **Zero-knowledge**: The server stores only AES-256-GCM ciphertext. The decryption key lives in the URL fragment, which browsers never send to the server.
 - **Client-side encryption**: All encryption and decryption happens on the client (CLI or browser Web Crypto API).
 - **Expiring**: Secrets auto-delete after the configured number of views or time limit.
-- **Composable library**: The server is designed for embedding — use `ExtraRoutes` and `Middleware` to extend the server with custom routes and middleware for any deployment.
+- **Composable library**: When importing zKettle as a Go library, use `ExtraRoutes` and `Middleware` to extend the server with custom routes and middleware for any deployment.
 
 ## Building
 

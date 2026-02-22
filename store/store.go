@@ -25,6 +25,7 @@ var ErrNotFound = errors.New("secret not found")
 var ErrExpired = errors.New("secret expired or consumed")
 var ErrUnauthorized = errors.New("unauthorized: invalid delete token")
 
+// SecretMeta is the return type for List(), used by the MCP list_secrets tool.
 type SecretMeta struct {
 	ID        string
 	ViewsLeft int
@@ -77,19 +78,17 @@ func New(dbPath string) (*Store, error) {
 		return nil, err
 	}
 
-	// Migrate: add columns if missing (pre-existing databases).
-	// Only "duplicate column" errors are expected and ignored; other errors are fatal.
-	for _, stmt := range []string{
-		`ALTER TABLE secrets ADD COLUMN delete_token TEXT NOT NULL DEFAULT ''`,
-	} {
-		if _, err := db.Exec(stmt); err != nil && !isDuplicateColumn(err) {
-			db.Close()
-			return nil, err
-		}
+	// Migrate: add delete_token column if missing (pre-existing databases).
+	if _, err := db.Exec(`ALTER TABLE secrets ADD COLUMN delete_token TEXT NOT NULL DEFAULT ''`); err != nil && !isDuplicateColumn(err) {
+		db.Close()
+		return nil, err
 	}
 
 	// Index for efficient expiry cleanup queries
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_expires ON secrets(expires_at)`)
+
+	// Drop stale index from previous versions that tracked creator_id
+	db.Exec(`DROP INDEX IF EXISTS idx_creator`)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Store{db: db, ctx: ctx, cancel: cancel}
