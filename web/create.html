@@ -237,14 +237,11 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
 .hidden{display:none!important}
 .byte-counter-visible{display:block}
 .text-error{color:#ef4444!important}
-.text-muted{color:#888!important}
+.text-muted,.text-dimmed{color:#888!important}
 .text-success{color:#9DED9D!important}
-.text-dimmed{color:#888!important}
 .recent-row{display:flex;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid #222;font-size:.75rem}
 .recent-info{flex:1;color:#888;overflow:hidden;text-overflow:ellipsis}
 .recent-id{white-space:nowrap}
-.recent-id a{color:#9DED9D;text-decoration:none}
-.recent-id a:hover{text-decoration:underline}
 .recent-meta{color:#555;font-size:.65rem;margin-top:.15rem}
 .recent-btn-sm{font-size:.65rem;padding:.3rem .6rem}
 .recent-section-card{margin-top:1rem}
@@ -497,10 +494,9 @@ function saveToken(id,deleteToken,extra){
   var tokens=loadTokens();
   var entry={id:id,deleteToken:deleteToken,createdAt:new Date().toISOString()};
   if(extra){
-    if(extra.views) entry.views=extra.views;
-    if(extra.minutes) entry.minutes=extra.minutes;
+    if(extra.views != null) entry.views=extra.views;
+    if(extra.minutes != null) entry.minutes=extra.minutes;
     if(extra.expiresAt) entry.expiresAt=extra.expiresAt;
-    if(extra.url) entry.url=extra.url;
   }
   tokens.push(entry);
   try{localStorage.setItem(STORAGE_KEY,JSON.stringify(tokens));}catch(e){}
@@ -513,6 +509,20 @@ function loadTokens(){
 function removeToken(id){
   var tokens=loadTokens().filter(function(t){return t.id!==id;});
   try{localStorage.setItem(STORAGE_KEY,JSON.stringify(tokens));}catch(e){}
+}
+
+function pruneExpiredTokens(){
+  var tokens=loadTokens();
+  var now=new Date();
+  var kept=tokens.filter(function(t){
+    if(t.expiresAt&&new Date(t.expiresAt)<now) return false;
+    // Remove entries older than 7 days even without expiresAt
+    if(t.createdAt&&(now-new Date(t.createdAt))>7*24*3600000) return false;
+    return true;
+  });
+  if(kept.length!==tokens.length){
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(kept));}catch(e){}
+  }
 }
 
 function renderRecent(){
@@ -531,16 +541,7 @@ function renderRecent(){
 
     var idLine=document.createElement('div');
     idLine.className='recent-id';
-    var idText=t.id.substring(0,12)+'…';
-    if(t.url){
-      var link=document.createElement('a');
-      link.href=t.url;
-      link.textContent=idText;
-      link.title='Open secret viewer';
-      idLine.appendChild(link);
-    }else{
-      idLine.textContent=idText;
-    }
+    idLine.textContent=t.id.substring(0,12)+'…';
     info.appendChild(idLine);
 
     var meta=document.createElement('div');
@@ -573,14 +574,9 @@ function markExpired(btn,info){
   btn.style.opacity='0.4';
   btn.style.cursor='default';
   info.style.opacity='0.5';
-  // Replace link with plain text
-  var link=info.querySelector('.recent-id a');
-  if(link){
-    var span=document.createElement('span');
-    span.textContent=link.textContent;
-    span.style.textDecoration='line-through';
-    link.parentNode.replaceChild(span,link);
-  }
+  // Strike through the ID text
+  var idEl=info.querySelector('.recent-id');
+  if(idEl) idEl.style.textDecoration='line-through';
   // Update meta to show "expired"
   var meta=info.querySelector('.recent-meta');
   if(meta){
@@ -589,7 +585,7 @@ function markExpired(btn,info){
 }
 
 function checkRecentStatus(id,btn,info){
-  fetch('/api/secrets/'+id+'/status').then(function(resp){
+  fetch('/api/secrets/'+encodeURIComponent(id)+'/status').then(function(resp){
     if(resp.status===404){
       markExpired(btn,info);
     }
@@ -714,7 +710,7 @@ async function createSecret(){
     var keyB64=b64urlEncode(rawKey);
     var shareURL=window.location.origin+'/s/'+data.id+'#'+keyB64;
 
-    saveToken(data.id,data.delete_token,{views:views,minutes:minutes,expiresAt:data.expires_at,url:shareURL});
+    saveToken(data.id,data.delete_token,{views:views,minutes:minutes,expiresAt:data.expires_at});
 
     // Show result
     document.getElementById('page-title').textContent='share this link';
@@ -879,6 +875,7 @@ document.getElementById('btn-another').addEventListener('click',resetForm);
 // Initialize form on page load
 initForm();
 setupByteCounter();
+pruneExpiredTokens();
 renderRecent();
 
 // Refresh recent statuses every 30s so expired secrets update without page reload
@@ -887,14 +884,15 @@ setInterval(function(){
   if(!section.classList.contains('hidden')){
     var tokens=loadTokens();
     tokens.forEach(function(t){
-      fetch('/api/secrets/'+t.id+'/status').then(function(resp){
+      // Skip entries already marked expired in the DOM
+      var row=document.querySelector('.recent-row[data-secret-id="'+CSS.escape(t.id)+'"]');
+      if(!row) return;
+      var btn=row.querySelector('.btn-revoke');
+      if(btn&&btn.textContent==='Expired') return;
+      fetch('/api/secrets/'+encodeURIComponent(t.id)+'/status').then(function(resp){
         if(resp.status===404){
-          var row=document.querySelector('.recent-row[data-secret-id="'+t.id+'"]');
-          if(row){
-            var info=row.querySelector('.recent-info');
-            var btn=row.querySelector('.btn-revoke');
-            if(btn&&btn.textContent!=='Expired') markExpired(btn,info);
-          }
+          var info=row.querySelector('.recent-info');
+          if(btn) markExpired(btn,info);
         }
       }).catch(function(){});
     });

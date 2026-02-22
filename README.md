@@ -224,7 +224,7 @@ zkettle serve [options]     Start the HTTP server
   --tls-cert ""             TLS certificate file path
   --tls-key ""              TLS private key file path
   --admin-token ""          Admin API bearer token (enables GET /api/admin/secrets)
-  --max-secret-size 0       Max encrypted secret size in bytes (0 = 512KB)
+  --max-secret-size 0       Max encrypted secret size in bytes (0 = 500KB)
   --metrics                 Enable /metrics endpoint
 
 zkettle create [options]    Encrypt and store a secret (reads from stdin)
@@ -281,7 +281,7 @@ log_format = "" # defaults to "text"
 tls_cert = ""
 tls_key = ""
 admin_token = ""
-max_secret_size = 0 # 0 = 512KB default
+max_secret_size = 0 # 0 = 500KB default
 metrics = false
 ```
 
@@ -372,10 +372,6 @@ Delete a secret. Requires `Authorization: Bearer {delete_token}` header.
 Response: 204 No Content
 
 Errors: 400 (invalid ID format), 401 (missing token), 403 (wrong token), 404 (not found)
-
-### GET /api/secrets/{id}/status
-
-Pre-check whether a secret is available without consuming a view. Returns 200 with `{"status":"available"}` if the secret exists and has remaining views. Returns 404 if expired, consumed, or nonexistent.
 
 ### GET /health
 

@@ -75,7 +75,7 @@ Encrypt and store a secret, returning an expiring URL.
 |-----------|------|----------|---------|-------------|
 | `content` | string | yes | — | The plaintext secret to encrypt (max 500KB) |
 | `views` | integer | no | `1` | Max views before auto-delete (1–100) |
-| `hours` | integer | no | `24` | Hours until expiry (1–720) |
+| `minutes` | integer | no | `1440` | Minutes until expiry (1–43200) |
 
 **Returns:** The secret URL (with decryption key in the fragment) and a `delete_token` for revocation.
 
@@ -116,6 +116,20 @@ List all active secrets on this server. Returns metadata only — no encrypted c
 
 **Returns:** A JSON array of secret metadata (ID, creation time, expiry, remaining views).
 
+### `generate_secret`
+
+Generate a cryptographically random secret. Optionally encrypt and store it in one step.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `length` | integer | no | `32` | Length in characters (1–4096) |
+| `charset` | string | no | `"alphanumeric"` | Character set: alphanumeric, symbols, hex, base64url |
+| `create` | boolean | no | `false` | If true, encrypt and store the generated secret |
+| `views` | integer | no | `1` | When create=true, max views before auto-delete (1–100) |
+| `minutes` | integer | no | `1440` | When create=true, minutes until expiry (1–43200) |
+
+**Returns:** Raw generated text, or `url` + `delete_token` when `create=true`.
+
 ## Common Patterns
 
 ### Create and share a secret
@@ -124,7 +138,7 @@ An agent creates a secret and sends the URL to a human or another agent:
 
 ```
 Agent: I'll create a temporary secret with your API key.
-→ calls create_secret(content="sk-abc123...", views=1, hours=1)
+→ calls create_secret(content="sk-abc123...", views=1, minutes=60)
 → "Here's your one-time link: https://example.com/s/xyz#key"
 ```
 
@@ -143,7 +157,7 @@ User: Read this secret: https://example.com/s/abc123#key
 Create a new secret, share it, then revoke the old one:
 
 ```
-→ calls create_secret(content="new-password-here", views=2, hours=4)
+→ calls create_secret(content="new-password-here", views=2, minutes=240)
 → shares the URL with the recipient
 → calls revoke_secret(id="old-secret-id", delete_token="old-token")
 ```
@@ -153,7 +167,7 @@ Create a new secret, share it, then revoke the old one:
 Create a short-lived secret with a single view for one-time access:
 
 ```
-→ calls create_secret(content="temp-token-xyz", views=1, hours=1)
+→ calls create_secret(content="temp-token-xyz", views=1, minutes=60)
 → "Access this within 1 hour — link expires after one view."
 ```
 
