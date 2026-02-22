@@ -8,7 +8,10 @@ Self-hosted zero-knowledge expiring secrets. Encrypt locally, store ciphertext o
 # Download the binary for your platform (or build from source)
 make build
 
-# Start the server
+# Start the server with a Cloudflare tunnel (instant public URL)
+./dist/zkettle serve --tunnel
+
+# Or start locally
 ./dist/zkettle serve --port 3000
 
 # Create a secret (in another terminal)
@@ -20,10 +23,127 @@ echo "my secret password" | ./dist/zkettle create --views 1 --minutes 60
 # → my secret password
 
 # Revoke a secret
-./dist/zkettle revoke abc123
+./dist/zkettle revoke --server http://localhost:3000 --token <delete-token> <id>
 ```
 
 Open the URL in a browser to reveal the secret via the web viewer.
+
+## Docker Deployment
+
+```bash
+# Build and run with Docker Compose
+docker compose up -d
+
+# Or build and run manually
+docker build -t zkettle .
+docker run -d -p 3000:3000 -v zkettle-data:/data zkettle
+```
+
+The container listens on port 3000 and stores data in `/data`. Configure with environment variables (see [Configuration Reference](#configuration-reference)).
+
+## Production Deployment
+
+### With TLS (direct)
+
+```bash
+zkettle serve --host 0.0.0.0 --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
+```
+
+### With a reverse proxy (recommended)
+
+Run zkettle behind Caddy, Nginx, or Traefik for automatic TLS:
+
+```bash
+zkettle serve --host 127.0.0.1 --trust-proxy
+```
+
+Enable `--trust-proxy` so zkettle reads the real client IP from `X-Forwarded-For` headers.
+
+### Systemd
+
+Copy the service template and enable it:
+
+```bash
+sudo cp contrib/zkettle.service /etc/systemd/system/
+sudo mkdir -p /var/lib/zkettle
+sudo systemctl daemon-reload
+sudo systemctl enable --now zkettle
+```
+
+Configure via environment file at `/etc/zkettle/env`:
+
+```bash
+ZKETTLE_PORT=3000
+ZKETTLE_HOST=0.0.0.0
+ZKETTLE_ADMIN_TOKEN=your-secret-token
+ZKETTLE_TRUST_PROXY=true
+```
+
+### Backups
+
+The database is a single SQLite file at `<data-dir>/zkettle.db`. Back it up with:
+
+```bash
+sqlite3 /var/lib/zkettle/zkettle.db ".backup /backups/zkettle-$(date +%Y%m%d).db"
+```
+
+## Admin API
+
+Enable the admin endpoint by setting an admin token via environment variable:
+
+```bash
+export ZKETTLE_ADMIN_TOKEN=my-secret-admin-token
+zkettle serve
+```
+
+> **Note:** Passing `--admin-token` on the command line exposes the token in process listings (`ps`, `/proc/*/cmdline`). Prefer the environment variable or config file.
+
+### List active secrets
+
+```bash
+# Via CLI
+zkettle list --server http://localhost:3000 --admin-token my-secret-admin-token
+
+# Via API
+curl -H "Authorization: Bearer my-secret-admin-token" http://localhost:3000/api/admin/secrets
+```
+
+Returns metadata only (ID, views remaining, timestamps). No encrypted content or decryption keys are ever exposed.
+
+### GET /api/admin/secrets
+
+Returns 404 when no admin token is configured (endpoint disabled). Requires `Authorization: Bearer <token>` header.
+
+Response (200):
+```json
+[
+  {
+    "id": "abc123...",
+    "views_left": 2,
+    "expires_at": "2024-01-02T03:04:05Z",
+    "created_at": "2024-01-01T00:00:00Z"
+  }
+]
+```
+
+## Metrics
+
+Enable the `/metrics` endpoint with the `--metrics` flag:
+
+```bash
+export ZKETTLE_ADMIN_TOKEN=my-secret-admin-token
+zkettle serve --metrics
+```
+
+The `/metrics` endpoint requires the admin token (`Authorization: Bearer <token>` header). Returns 404 when no admin token is configured.
+
+Returns JSON metrics at `GET /metrics`:
+
+```json
+{
+  "zkettle_secrets_active": 5
+}
+```
 
 ## MCP Setup
 
@@ -40,7 +160,9 @@ zKettle includes an MCP server for use with Claude Desktop, Claude Code, or any 
 }
 ```
 
-The MCP server starts an HTTP backend on the specified port and communicates with the agent over stdio. Available tools:
+The MCP server starts an HTTP backend on the specified port and communicates with the agent over stdio. All encryption and decryption happens locally — in the browser (Web Crypto API), CLI, or MCP server process. The zKettle HTTP server never sees plaintext.
+
+Available tools:
 
 | Tool | Description |
 |------|-------------|
@@ -48,6 +170,7 @@ The MCP server starts an HTTP backend on the specified port and communicates wit
 | `read_secret` | Retrieve and decrypt a secret from a zKettle URL |
 | `list_secrets` | List active secrets (metadata only) |
 | `revoke_secret` | Delete a secret by ID |
+| `generate_secret` | Generate a random secret, optionally store it |
 
 ## CLI Reference
 
@@ -60,18 +183,34 @@ zkettle serve [options]     Start the HTTP server
   --cors-origins ""         Comma-separated allowed CORS origins
   --tunnel                  Expose server via Cloudflare Quick Tunnel
   --trust-proxy             Trust X-Forwarded-For headers (behind a reverse proxy)
-  --log-format text         Log format: json or text
+  --log-format ""           Log format: json or text (defaults to text)
+  --tls-cert ""             TLS certificate file path
+  --tls-key ""              TLS private key file path
+  --admin-token ""          Admin API bearer token (enables GET /api/admin/secrets)
+  --max-secret-size 0       Max encrypted secret size in bytes (0 = 512KB)
+  --metrics                 Enable /metrics endpoint
 
-zkettle create [options] <plaintext>   Encrypt and store a secret
+zkettle create [options]    Encrypt and store a secret (reads from stdin)
   --views 1                 Max views before auto-delete
   --minutes 1440            Minutes until expiry (default 24h)
   --server http://localhost:3000   Server URL
+  --json                    Output JSON to stdout
+  --quiet, -q               Suppress stderr output
 
 zkettle read <url>          Retrieve and decrypt a secret (quote the URL)
 
 zkettle revoke [options] <id>   Delete a secret
   --server http://localhost:3000   Server URL
-  --token ""                Delete token (returned by create)
+  --token ""                Delete token (returned by create, or set ZKETTLE_DELETE_TOKEN)
+
+zkettle list [options]      List active secrets (requires admin token)
+  --server http://localhost:3000   Server URL
+  --admin-token ""          Admin API bearer token
+  --json                    Output raw JSON
+
+zkettle generate [options]  Generate a cryptographically random secret
+  --length 32               Length in characters
+  --charset alphanumeric    Character set: alphanumeric, symbols, hex, base64url
 
 zkettle mcp [options]       Start MCP server on stdio with HTTP backend
   --port 3000               HTTP port for API
@@ -80,10 +219,55 @@ zkettle mcp [options]       Start MCP server on stdio with HTTP backend
   --base-url ""             Base URL for generated links
   --tunnel                  Expose server via Cloudflare Quick Tunnel
   --trust-proxy             Trust X-Forwarded-For headers (behind a reverse proxy)
-  --log-format text         Log format: json or text
+  --log-format ""           Log format: json or text (defaults to text)
 
 zkettle version             Print version
 ```
+
+## Configuration Reference
+
+Configuration is resolved in order of precedence: **flags > env vars > config file > defaults**.
+
+### Config file
+
+Search order: `./zkettle.toml`, `$HOME/.config/zkettle/zkettle.toml`
+
+```toml
+port = 3000
+host = "127.0.0.1"
+data = "./data"
+base_url = ""
+cors_origins = []
+trust_proxy = false
+tunnel = false
+log_format = "" # defaults to "text"
+tls_cert = ""
+tls_key = ""
+admin_token = ""
+max_secret_size = 0 # 0 = 512KB default
+metrics = false
+```
+
+> **Security:** If your config file contains `admin_token`, restrict permissions: `chmod 600 zkettle.toml`
+
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `ZKETTLE_PORT` | HTTP port |
+| `ZKETTLE_HOST` | Listen address |
+| `ZKETTLE_DATA` | Data directory |
+| `ZKETTLE_BASE_URL` | Base URL for generated links |
+| `ZKETTLE_CORS_ORIGINS` | Comma-separated CORS origins |
+| `ZKETTLE_TRUST_PROXY` | Trust proxy headers (`true`/`1`/`yes`) |
+| `ZKETTLE_TUNNEL` | Enable Cloudflare tunnel (`true`/`1`/`yes`) |
+| `ZKETTLE_LOG_FORMAT` | Log format: `json` or `text` |
+| `ZKETTLE_TLS_CERT` | TLS certificate file path |
+| `ZKETTLE_TLS_KEY` | TLS private key file path |
+| `ZKETTLE_ADMIN_TOKEN` | Admin API bearer token |
+| `ZKETTLE_MAX_SECRET_SIZE` | Max encrypted secret size in bytes |
+| `ZKETTLE_METRICS` | Enable metrics endpoint (`true`/`1`/`yes`) |
+| `ZKETTLE_DELETE_TOKEN` | Delete token for `zkettle revoke` (alternative to `--token`) |
 
 ## API Reference
 
@@ -91,6 +275,7 @@ zkettle version             Print version
 
 Create a secret.
 
+Request:
 ```json
 {
   "encrypted": "<base64url ciphertext>",
@@ -99,6 +284,12 @@ Create a secret.
   "minutes": 1440
 }
 ```
+
+Constraints:
+- `encrypted` — required, base64url-encoded, max 500KB decoded (configurable via `--max-secret-size`)
+- `iv` — required, base64url-encoded, must decode to exactly 12 bytes
+- `views` — 1-100 (default: 1)
+- `minutes` — 1-43200 (default: 1440)
 
 Response (201):
 ```json
@@ -109,7 +300,9 @@ Response (201):
 }
 ```
 
-### GET /api/secrets/:id
+Errors: 400 (validation), 415 (wrong Content-Type), 429 (rate limited)
+
+### GET /api/secrets/{id}
 
 Retrieve and consume a view. Returns the encrypted blob:
 
@@ -120,24 +313,41 @@ Retrieve and consume a view. Returns the encrypted blob:
 }
 ```
 
-Returns 404 if expired, already consumed, or nonexistent.
+Errors: 400 (invalid ID format), 404 (expired, consumed, or nonexistent)
 
-### DELETE /api/secrets/:id
+### GET /api/secrets/{id}/status
 
-Delete a secret. Requires `Authorization: Bearer {delete_token}` header. Returns 204.
+Check availability without consuming a view.
+
+Response (200):
+```json
+{
+  "status": "available"
+}
+```
+
+Errors: 400 (invalid ID format), 404 (expired, consumed, or nonexistent)
+
+### DELETE /api/secrets/{id}
+
+Delete a secret. Requires `Authorization: Bearer {delete_token}` header.
+
+Response: 204 No Content
+
+Errors: 400 (invalid ID format), 401 (missing token), 403 (wrong token), 404 (not found)
 
 ### GET /health
 
 Health check. Returns 200 with `{"status":"ok"}`.
 
-### GET /s/:id
+### GET /s/{id}
 
 Serves the web viewer HTML. The decryption key is in the URL fragment (`#key`) and never sent to the server.
 
 ## Security Model
 
 - **Zero-knowledge**: The server stores only AES-256-GCM ciphertext. The decryption key lives in the URL fragment, which browsers never send to the server.
-- **Client-side encryption**: All encryption and decryption happens on the client (CLI or browser Web Crypto API).
+- **Client-side encryption**: All encryption and decryption happens locally — in the browser (Web Crypto API), CLI, or MCP server process. The zKettle HTTP server never sees plaintext.
 - **Expiring**: Secrets auto-delete after the configured number of views or time limit.
 - **Composable auth**: The core server runs with no authentication — anyone with the URL can view a secret. When used as a library, a hosted instance can plug in an `AuthFunc` to enforce recipient gating (secrets restricted to a specific user by email or wallet address).
 
@@ -145,7 +355,7 @@ Serves the web viewer HTML. The decryption key is in the URL fragment (`#key`) a
 
 ```bash
 make build          # Build for current platform
-make build-all      # Build for darwin/linux arm64/amd64
+make build-all      # Build for darwin/linux/windows amd64 + darwin/linux arm64
 make test           # Run all tests
 make clean          # Remove build artifacts
 ```

@@ -1,33 +1,12 @@
 package cmd
 
 import (
-	"crypto/rand"
 	"flag"
 	"fmt"
-	"math/big"
 	"os"
-)
 
-const (
-	charsetAlphanumeric = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	charsetSymbols      = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?"
-	charsetHex          = "0123456789abcdef"
-	charsetBase64URL    = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	"github.com/benderterminal/zkettle/internal/generate"
 )
-
-// Generate produces a cryptographically random string of the given length
-// using characters from the specified charset.
-func Generate(length int, charset string) (string, error) {
-	result := make([]byte, length)
-	for i := 0; i < length; i++ {
-		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
-		if err != nil {
-			return "", fmt.Errorf("generating random byte: %w", err)
-		}
-		result[i] = charset[idx.Int64()]
-	}
-	return string(result), nil
-}
 
 func RunGenerate(args []string) error {
 	f := flag.NewFlagSet("generate", flag.ExitOnError)
@@ -44,18 +23,18 @@ func RunGenerate(args []string) error {
 	var chars string
 	switch *charset {
 	case "alphanumeric":
-		chars = charsetAlphanumeric
+		chars = generate.Alphanumeric
 	case "symbols":
-		chars = charsetSymbols
+		chars = generate.Symbols
 	case "hex":
-		chars = charsetHex
+		chars = generate.Hex
 	case "base64url":
-		chars = charsetBase64URL
+		chars = generate.Base64URL
 	default:
 		return fmt.Errorf("unknown charset %q (use: alphanumeric, symbols, hex, base64url)", *charset)
 	}
 
-	secret, err := Generate(*length, chars)
+	secret, err := generate.RandomString(*length, chars)
 	if err != nil {
 		return err
 	}

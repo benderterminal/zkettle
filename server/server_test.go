@@ -11,7 +11,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/taw/zkettle/store"
+	"github.com/benderterminal/zkettle/store"
 )
 
 // Valid 32-char hex IDs for tests
@@ -629,5 +629,135 @@ func TestMiddlewareWrapsHandler(t *testing.T) {
 		if order[i] != v {
 			t.Fatalf("middleware execution order[%d]: got %q, want %q (full: %v)", i, order[i], v, order)
 		}
+	}
+}
+
+// --- Admin endpoint tests ---
+
+func TestAdminListDisabledWithoutToken(t *testing.T) {
+	srv, _ := newTestServer(t) // no AdminToken set
+	req := httptest.NewRequest("GET", "/api/admin/secrets", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("admin endpoint without token config: got %d, want 404", w.Code)
+	}
+}
+
+func TestAdminListUnauthorized(t *testing.T) {
+	srv, _ := newTestServerWithConfig(t, Config{AdminToken: "test-token"})
+
+	// No auth header
+	req := httptest.NewRequest("GET", "/api/admin/secrets", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("admin no auth: got %d, want 401", w.Code)
+	}
+
+	// Wrong token
+	req = httptest.NewRequest("GET", "/api/admin/secrets", nil)
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("admin wrong token: got %d, want 401", w.Code)
+	}
+}
+
+func TestAdminListSuccess(t *testing.T) {
+	srv, st := newTestServerWithConfig(t, Config{AdminToken: "test-token"})
+
+	// Create a secret
+	st.Create("aa000000000000000000000000000010", []byte("enc"), []byte("123456789012"), 3, time.Now().Add(1*time.Hour), "tok")
+
+	req := httptest.NewRequest("GET", "/api/admin/secrets", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("admin list: got %d, want 200. Body: %s", w.Code, w.Body.String())
+	}
+
+	var secrets []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &secrets); err != nil {
+		t.Fatal(err)
+	}
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if secrets[0]["id"] != "aa000000000000000000000000000010" {
+		t.Fatalf("unexpected id: %v", secrets[0]["id"])
+	}
+	// Verify no encrypted content is exposed
+	if _, ok := secrets[0]["encrypted"]; ok {
+		t.Fatal("admin endpoint should not expose encrypted content")
+	}
+}
+
+// --- Metrics endpoint tests ---
+
+func TestMetricsDisabledByDefault(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	// Without MetricsEnabled, the route is not registered — expect 404 or 405
+	if w.Code == http.StatusOK {
+		t.Fatal("metrics should not be enabled by default")
+	}
+}
+
+func TestMetricsEnabled(t *testing.T) {
+	srv, st := newTestServerWithConfig(t, Config{MetricsEnabled: true, AdminToken: "test-admin-token1"})
+
+	st.Create("aa000000000000000000000000000011", []byte("enc"), []byte("123456789012"), 1, time.Now().Add(1*time.Hour), "tok")
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer test-admin-token1")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /metrics: got %d, want 200. Body: %s", w.Code, w.Body.String())
+	}
+
+	var metrics map[string]int
+	if err := json.Unmarshal(w.Body.Bytes(), &metrics); err != nil {
+		t.Fatal(err)
+	}
+	if metrics["zkettle_secrets_active"] != 1 {
+		t.Fatalf("expected 1 active secret, got %d", metrics["zkettle_secrets_active"])
+	}
+}
+
+func TestMetricsRequiresAuth(t *testing.T) {
+	srv, _ := newTestServerWithConfig(t, Config{MetricsEnabled: true, AdminToken: "test-admin-token1"})
+
+	// No auth header
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("metrics no auth: got %d, want 401", w.Code)
+	}
+
+	// Wrong token
+	req = httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer wrong-token-here")
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("metrics wrong token: got %d, want 401", w.Code)
+	}
+}
+
+func TestMetricsReturns404WithoutAdminToken(t *testing.T) {
+	srv, _ := newTestServerWithConfig(t, Config{MetricsEnabled: true})
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("metrics without admin token config: got %d, want 404", w.Code)
 	}
 }

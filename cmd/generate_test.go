@@ -3,10 +3,12 @@ package cmd
 import (
 	"regexp"
 	"testing"
+
+	"github.com/benderterminal/zkettle/internal/generate"
 )
 
 func TestGenerateDefaultLength(t *testing.T) {
-	secret, err := Generate(32, charsetAlphanumeric)
+	secret, err := generate.RandomString(32, generate.Alphanumeric)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,7 +18,7 @@ func TestGenerateDefaultLength(t *testing.T) {
 }
 
 func TestGenerateCustomLength(t *testing.T) {
-	secret, err := Generate(64, charsetAlphanumeric)
+	secret, err := generate.RandomString(64, generate.Alphanumeric)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +28,7 @@ func TestGenerateCustomLength(t *testing.T) {
 }
 
 func TestGenerateHexCharset(t *testing.T) {
-	secret, err := Generate(32, charsetHex)
+	secret, err := generate.RandomString(32, generate.Hex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +38,7 @@ func TestGenerateHexCharset(t *testing.T) {
 }
 
 func TestGenerateBase64URLCharset(t *testing.T) {
-	secret, err := Generate(32, charsetBase64URL)
+	secret, err := generate.RandomString(32, generate.Base64URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,7 @@ func TestGenerateBase64URLCharset(t *testing.T) {
 }
 
 func TestGenerateAlphanumericCharset(t *testing.T) {
-	secret, err := Generate(32, charsetAlphanumeric)
+	secret, err := generate.RandomString(32, generate.Alphanumeric)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +58,7 @@ func TestGenerateAlphanumericCharset(t *testing.T) {
 }
 
 func TestGenerateSymbolsCharset(t *testing.T) {
-	secret, err := Generate(32, charsetSymbols)
+	secret, err := generate.RandomString(32, generate.Symbols)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,21 +68,21 @@ func TestGenerateSymbolsCharset(t *testing.T) {
 }
 
 func TestGenerateRandomness(t *testing.T) {
-	s1, err := Generate(32, charsetAlphanumeric)
+	s1, err := generate.RandomString(32, generate.Alphanumeric)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s2, err := Generate(32, charsetAlphanumeric)
+	s2, err := generate.RandomString(32, generate.Alphanumeric)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s1 == s2 {
-		t.Fatal("two Generate calls produced identical output")
+		t.Fatal("two generate calls produced identical output")
 	}
 }
 
 func TestGenerateNoNewline(t *testing.T) {
-	secret, err := Generate(32, charsetAlphanumeric)
+	secret, err := generate.RandomString(32, generate.Alphanumeric)
 	if err != nil {
 		t.Fatal(err)
 	}

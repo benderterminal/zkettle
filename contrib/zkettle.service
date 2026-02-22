@@ -1,0 +1,30 @@
+[Unit]
+Description=zKettle - Zero-Knowledge Encrypted Secret Sharing
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/zkettle serve --host 0.0.0.0 --data /var/lib/zkettle
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/zkettle
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+
+# Environment file for configuration (optional)
+# Create /etc/zkettle/env with ZKETTLE_* variables
+EnvironmentFile=-/etc/zkettle/env
+
+[Install]
+WantedBy=multi-user.target

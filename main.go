@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/taw/zkettle/cmd"
+	"github.com/benderterminal/zkettle/cmd"
 )
 
 //go:embed web
@@ -26,7 +26,7 @@ func main() {
 	var err error
 	switch os.Args[1] {
 	case "serve":
-		err = cmd.RunServe(os.Args[2:], webFS)
+		err = cmd.RunServe(os.Args[2:], webFS, version)
 	case "mcp":
 		err = cmd.RunMCP(os.Args[2:], webFS, version)
 	case "create":
@@ -37,6 +37,8 @@ func main() {
 		err = cmd.RunRevoke(os.Args[2:])
 	case "generate":
 		err = cmd.RunGenerate(os.Args[2:])
+	case "list":
+		err = cmd.RunList(os.Args[2:])
 	case "version":
 		fmt.Printf("zkettle %s (commit %s, built %s)\n", version, commit, date)
 	case "help", "--help", "-h":
@@ -63,6 +65,7 @@ Commands:
   read      Retrieve and decrypt a secret
   revoke    Delete a secret
   generate  Generate a cryptographically random secret
+  list      List active secrets (requires admin token)
   mcp       Start MCP server (stdio) with HTTP backend
   version   Print version
   help      Show this help`)
