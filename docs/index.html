@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zKettle - Zero-Knowledge Secret Sharing</title>
+<meta name="description" content="Self-hosted zero-knowledge encrypted secrets that boil away. AES-256-GCM encryption, one-time URLs, configurable burn. Single binary. AI-native.">
+<meta property="og:title" content="zKettle - Zero-Knowledge Secret Sharing">
+<meta property="og:description" content="Self-hosted zero-knowledge encrypted secrets that boil away. Single binary. No dependencies. AI-native.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://benderterminal.github.io/zkettle">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239DED9D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2' ry='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:'JetBrains Mono','Fira Code','SF Mono','Cascadia Code',monospace;
+  background:#0a0a0a;
+  color:#b0b0b0;
+  min-height:100vh;
+  line-height:1.6;
+  overflow-x:hidden;
+}
+a{color:#9DED9D;text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* Hero */
+.hero{
+  text-align:center;
+  padding:4rem 1rem 3rem;
+  max-width:720px;
+  margin:0 auto;
+}
+.banner{
+  color:#9DED9D;
+  font-size:clamp(0.45rem, 2.2vw, 0.85rem);
+  line-height:1.2;
+  text-align:left;
+  display:inline-block;
+  margin-bottom:0.5rem;
+}
+.tagline{
+  color:#666;
+  font-size:0.85rem;
+  margin-bottom:1.5rem;
+  letter-spacing:0.05em;
+}
+.pitch{
+  font-size:0.95rem;
+  color:#b0b0b0;
+  max-width:560px;
+  margin:0 auto 2rem;
+  line-height:1.7;
+}
+.cta-row{
+  display:flex;
+  gap:0.75rem;
+  justify-content:center;
+  flex-wrap:wrap;
+}
+.btn{
+  display:inline-block;
+  font-family:inherit;
+  font-size:0.9rem;
+  font-weight:600;
+  padding:0.75rem 1.75rem;
+  border-radius:4px;
+  cursor:pointer;
+  transition:background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  text-decoration:none;
+}
+.btn:hover{text-decoration:none}
+.btn-primary{
+  background:#9DED9D;
+  color:#0a0a0a;
+  border:1px solid #9DED9D;
+}
+.btn-primary:hover{
+  background:#6BBF6B;
+  border-color:#6BBF6B;
+  box-shadow:0 0 20px rgba(107,191,107,0.2);
+}
+.btn-secondary{
+  background:transparent;
+  color:#9DED9D;
+  border:1px solid #333;
+}
+.btn-secondary:hover{
+  border-color:#9DED9D;
+  background:rgba(157,237,157,0.05);
+}
+
+/* Sections */
+section{
+  max-width:720px;
+  margin:0 auto;
+  padding:0 1rem 3rem;
+}
+.section-title{
+  font-size:1rem;
+  color:#e0e0e0;
+  font-weight:400;
+  margin-bottom:1.5rem;
+  letter-spacing:0.05em;
+}
+
+/* How It Works */
+.steps{
+  display:grid;
+  grid-template-columns:repeat(3, 1fr);
+  gap:1rem;
+}
+.step{
+  background:#111111;
+  border:1px solid #222;
+  border-radius:8px;
+  padding:1.5rem 1rem;
+  text-align:center;
+}
+.step-num{
+  display:inline-block;
+  width:28px;
+  height:28px;
+  line-height:28px;
+  border-radius:50%;
+  background:#222;
+  color:#9DED9D;
+  font-size:0.75rem;
+  font-weight:700;
+  margin-bottom:0.75rem;
+}
+.step-icon{
+  font-size:1.5rem;
+  margin-bottom:0.5rem;
+}
+.step-label{
+  color:#e0e0e0;
+  font-size:0.85rem;
+  font-weight:600;
+  margin-bottom:0.35rem;
+}
+.step-desc{
+  font-size:0.75rem;
+  color:#666;
+  line-height:1.5;
+}
+
+/* Feature cards */
+.features{
+  display:grid;
+  grid-template-columns:repeat(2, 1fr);
+  gap:1rem;
+}
+.feature{
+  background:#111111;
+  border:1px solid #222;
+  border-radius:8px;
+  padding:1.25rem;
+}
+.feature-icon{
+  color:#9DED9D;
+  font-size:0.85rem;
+  font-weight:700;
+  margin-bottom:0.5rem;
+}
+.feature-title{
+  color:#e0e0e0;
+  font-size:0.85rem;
+  font-weight:600;
+  margin-bottom:0.35rem;
+}
+.feature-desc{
+  font-size:0.75rem;
+  color:#888;
+  line-height:1.5;
+}
+
+/* Terminal block */
+.terminal{
+  background:#111111;
+  border:1px solid #222;
+  border-radius:8px;
+  overflow:hidden;
+}
+.terminal-bar{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:0.6rem 0.85rem;
+  background:#0d0d0d;
+  border-bottom:1px solid #222;
+}
+.terminal-dot{
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:#333;
+}
+.terminal-title{
+  font-size:0.65rem;
+  color:#555;
+  margin-left:0.5rem;
+}
+.terminal-body{
+  padding:1rem;
+  overflow-x:auto;
+}
+.terminal-body code{
+  display:block;
+  font-family:inherit;
+  font-size:0.8rem;
+  line-height:1.7;
+  color:#b0b0b0;
+  white-space:pre;
+}
+.terminal-body .comment{color:#555}
+.terminal-body .cmd{color:#e0e0e0}
+.terminal-body .output{color:#9DED9D}
+.terminal-body .flag{color:#888}
+
+/* Footer */
+.footer{
+  text-align:center;
+  padding:2rem 1rem;
+  font-size:0.7rem;
+  color:#444;
+  border-top:1px solid #151515;
+}
+.footer a{color:#9DED9D}
+
+/* Responsive */
+@media(max-width:600px){
+  .hero{padding:2.5rem 1rem 2rem}
+  .banner{font-size:0.4rem}
+  .steps{grid-template-columns:1fr}
+  .features{grid-template-columns:1fr}
+  .pitch{font-size:0.88rem}
+}
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+<pre class="banner" aria-label="zKettle">
+        ) )
+       ( (
+     _  ~)~   _   _   _
+ ___| |/ /___| |_| |_| | ___
+|_  / ' // _ \ __| __| |/ _ \
+ / /| . \  __/ |_| |_| |  __/
+/___|_|\_\___|\__|\__|_|\___|</pre>
+
+  <p class="tagline">encrypted. ephemeral. evaporated.</p>
+
+  <p class="pitch">Zero-knowledge encrypted secrets that boil away.</p>
+
+  <div class="cta-row">
+    <a class="btn btn-primary" href="https://github.com/benderterminal/zkettle#quick-start">Self-Host Now</a>
+    <a class="btn btn-secondary" href="https://github.com/benderterminal/zkettle">View on GitHub</a>
+  </div>
+</div>
+
+<!-- How It Works -->
+<section>
+  <div class="section-title">how it works</div>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-label">Encrypt</div>
+      <div class="step-desc">AES-256-GCM encryption happens locally. The server never sees your plaintext or key.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-label">Share</div>
+      <div class="step-desc">Get a one-time URL. The decryption key lives in the fragment&mdash;never sent to the server.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-label">Evaporate</div>
+      <div class="step-desc">Secret auto-deletes after the configured view limit or time-to-live expires.</div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section>
+  <div class="section-title">why zkettle</div>
+  <div class="features">
+    <div class="feature">
+      <div class="feature-icon">&gt; zero-knowledge encryption</div>
+      <div class="feature-desc">AES-256-GCM encryption with the key in the URL fragment. The server stores only ciphertext&mdash;it never sees the plaintext or the decryption key.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">&gt; configurable burn</div>
+      <div class="feature-desc">Set view limits (1&ndash;100) and time-to-live (1 min&ndash;30 days). Secrets auto-delete when either threshold is reached.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">&gt; AI-native</div>
+      <div class="feature-desc">MCP server, CLI, REST API, and web UI. Ships with a SKILL.md so agents can self-onboard and manage secrets programmatically.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">&gt; runs anywhere</div>
+      <div class="feature-desc">Single Go binary, embedded SQLite, no external dependencies. Your laptop, a server, Docker, or behind a reverse proxy.</div>
+    </div>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section>
+  <div class="section-title">quick start</div>
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="terminal-dot"></div>
+      <div class="terminal-dot"></div>
+      <div class="terminal-dot"></div>
+      <span class="terminal-title">terminal</span>
+    </div>
+    <div class="terminal-body">
+<code><span class="comment"># Install</span>
+<span class="cmd">go install github.com/benderterminal/zkettle@latest</span>
+
+<span class="comment"># Start the server</span>
+<span class="cmd">zkettle serve</span> <span class="flag">--tunnel</span>
+
+<span class="comment"># Create a secret</span>
+<span class="cmd">echo</span> <span class="flag">"my secret"</span> <span class="cmd">| zkettle create</span> <span class="flag">--views 1 --minutes 60</span>
+<span class="output">&rarr; https://your-tunnel.trycloudflare.com/s/abc123#key</span>
+
+<span class="comment"># Read it back</span>
+<span class="cmd">zkettle read</span> <span class="flag">"https://your-tunnel.trycloudflare.com/s/abc123#key"</span>
+<span class="output">&rarr; my secret</span></code>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<div class="footer">
+  AGPL-3.0 &middot; <a href="https://github.com/benderterminal/zkettle">GitHub</a>
+</div>
+
+</body>
+</html>
