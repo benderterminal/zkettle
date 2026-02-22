@@ -26,7 +26,7 @@
 
 ### Pre-launch (before making repo public)
 - [x] Module path fix (`github.com/benderterminal/zkettle`)
-- [x] E2E testing (automated + manual)
+- [x] E2E testing (automated + manual — see plans/E2E-TESTING.md for checklist)
 - [x] README with install instructions
 - [x] SKILL.md updated for v1.0.0
 - [ ] Deep review passing

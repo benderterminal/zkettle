@@ -90,10 +90,11 @@ Copy the service template and enable it:
 
 ```bash
 sudo cp contrib/zkettle.service /etc/systemd/system/
-sudo mkdir -p /var/lib/zkettle
 sudo systemctl daemon-reload
 sudo systemctl enable --now zkettle
 ```
+
+The service template uses `DynamicUser=yes` with `ReadWritePaths=/var/lib/zkettle`, so systemd manages the data directory automatically.
 
 Configure via environment file at `/etc/zkettle/env`:
 

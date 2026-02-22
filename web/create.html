@@ -244,6 +244,9 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
 .recent-id{white-space:nowrap}
 .recent-meta{color:#555;font-size:.65rem;margin-top:.15rem}
 .recent-btn-sm{font-size:.65rem;padding:.3rem .6rem}
+.recent-expired .recent-info{opacity:.5}
+.recent-expired .recent-id{text-decoration:line-through}
+.recent-expired .btn-revoke{opacity:.4;cursor:default}
 .recent-section-card{margin-top:1rem}
 .recent-heading{font-size:.8rem;color:#777;margin-bottom:.75rem}
 #byte-counter{font-size:.7rem;color:#555;text-align:right;margin-top:.25rem}
@@ -571,13 +574,8 @@ function renderRecent(){
 function markExpired(btn,info){
   btn.textContent='Expired';
   btn.disabled=true;
-  btn.style.opacity='0.4';
-  btn.style.cursor='default';
-  info.style.opacity='0.5';
-  // Strike through the ID text
-  var idEl=info.querySelector('.recent-id');
-  if(idEl) idEl.style.textDecoration='line-through';
-  // Update meta to show "expired"
+  var row=btn.closest('.recent-row');
+  if(row) row.classList.add('recent-expired');
   var meta=info.querySelector('.recent-meta');
   if(meta){
     meta.textContent=meta.textContent.replace(/expires\s+[^·]+/,'expired');
@@ -879,24 +877,30 @@ pruneExpiredTokens();
 renderRecent();
 
 // Refresh recent statuses every 30s so expired secrets update without page reload
-setInterval(function(){
+var recentPoll=setInterval(function(){
   var section=document.getElementById('recent-section');
-  if(!section.classList.contains('hidden')){
-    var tokens=loadTokens();
-    tokens.forEach(function(t){
-      // Skip entries already marked expired in the DOM
-      var row=document.querySelector('.recent-row[data-secret-id="'+CSS.escape(t.id)+'"]');
-      if(!row) return;
-      var btn=row.querySelector('.btn-revoke');
-      if(btn&&btn.textContent==='Expired') return;
-      fetch('/api/secrets/'+encodeURIComponent(t.id)+'/status').then(function(resp){
-        if(resp.status===404){
-          var info=row.querySelector('.recent-info');
-          if(btn) markExpired(btn,info);
-        }
-      }).catch(function(){});
-    });
+  if(section.classList.contains('hidden')){
+    clearInterval(recentPoll);
+    return;
   }
+  var tokens=loadTokens();
+  // All expired — stop polling
+  var hasActive=false;
+  tokens.forEach(function(t){
+    // Skip entries already marked expired in the DOM
+    var row=document.querySelector('.recent-row[data-secret-id="'+CSS.escape(t.id)+'"]');
+    if(!row) return;
+    var btn=row.querySelector('.btn-revoke');
+    if(btn&&btn.textContent==='Expired') return;
+    hasActive=true;
+    fetch('/api/secrets/'+encodeURIComponent(t.id)+'/status').then(function(resp){
+      if(resp.status===404){
+        var info=row.querySelector('.recent-info');
+        if(btn) markExpired(btn,info);
+      }
+    }).catch(function(){});
+  });
+  if(!hasActive) clearInterval(recentPoll);
 },30000);
 })();
 </script>

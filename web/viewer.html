@@ -279,7 +279,7 @@ button.primary:disabled{
 
         <!-- Gone state -->
         <div class="state" id="state-gone">
-            <p class="gone-msg">Secret has boiled away and is no longer available. It's either reached its maximum view limit or expired.</p>
+            <p class="gone-msg">Secret has boiled away and is no longer available. It's either reached its maximum view limit, expired, or the link may be incomplete.</p>
             <p class="gone-msg gone-note">Contact the sender to receive a new encrypted secret.</p>
         </div>
     </div>
@@ -486,17 +486,17 @@ button.primary:disabled{
 
     // Poll status every 15s while waiting on "available" state.
     // If the secret expires (time or views consumed elsewhere), transition to "gone".
+    var pollPath = window.location.pathname;
+    var pollMatch = pollPath.match(/\/s\/([^\/]+)/);
+    var pollId = pollMatch ? pollMatch[1] : null;
     var statusPoll = setInterval(function(){
         var avail = document.getElementById('state-available');
         if (!avail.classList.contains('active')) {
             clearInterval(statusPoll);
             return;
         }
-        var path = window.location.pathname;
-        var match = path.match(/\/s\/([^\/]+)/);
-        var id = match ? match[1] : null;
-        if (!id) return;
-        fetch('/api/secrets/' + encodeURIComponent(id) + '/status').then(function(resp){
+        if (!pollId) return;
+        fetch('/api/secrets/' + encodeURIComponent(pollId) + '/status').then(function(resp){
             if (resp.status === 404 || resp.status === 410) {
                 clearInterval(statusPoll);
                 showState('gone');

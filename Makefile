@@ -18,11 +18,12 @@ test:
 
 install: build
 	@if [ -n "$(GOPATH)" ] && [ -d "$(GOPATH)/bin" ]; then \
-		cp dist/zkettle $(GOPATH)/bin/zkettle; \
+		install -m 0755 dist/zkettle $(GOPATH)/bin/zkettle; \
 	elif [ -d "$(HOME)/go/bin" ]; then \
-		cp dist/zkettle $(HOME)/go/bin/zkettle; \
+		install -m 0755 dist/zkettle $(HOME)/go/bin/zkettle; \
 	else \
-		cp dist/zkettle /usr/local/bin/zkettle; \
+		echo "Installing to /usr/local/bin (may require sudo)"; \
+		install -m 0755 dist/zkettle /usr/local/bin/zkettle; \
 	fi
 
 clean:

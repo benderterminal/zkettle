@@ -114,7 +114,14 @@ zkettle mcp --port 3001 --tunnel
 
 ## Web UI
 
-Start the server and open `http://localhost:3000` in a browser. Use `--tunnel` for a public URL shareable with anyone — without it, the web UI is only accessible on localhost. The web UI supports creating secrets, revealing secrets via shareable URLs, and revoking secrets. All encryption happens client-side using the Web Crypto API.
+Start the server and open `http://localhost:3000` in a browser. Use `--tunnel` for a public URL shareable with anyone — without it, the web UI is only accessible on localhost. All encryption happens client-side using the Web Crypto API.
+
+Features:
+- **Create secrets** with configurable view limits and expiry (presets or custom datetime picker)
+- **Generate random secrets** (password, token, or hex key presets) directly in the form
+- **Reveal secrets** via shareable URLs — the viewer auto-detects if a secret has expired or been consumed
+- **Recent secrets panel** tracks created secrets with view counts, expiry timestamps, and revoke buttons
+- **Status polling** automatically updates the viewer and recent panel when secrets expire
 
 ## Tool Reference
 
