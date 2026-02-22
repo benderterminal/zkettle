@@ -610,7 +610,16 @@ async function revokeRecent(entry,btn){
         currentSecretID='';
         currentDeleteToken='';
       }
-      renderRecent();
+      // Mark as revoked in the recent list instead of removing
+      btn.textContent='Revoked';
+      btn.disabled=true;
+      var row=btn.closest('.recent-row');
+      if(row) row.classList.add('recent-expired');
+      var meta=btn.closest('.recent-row');
+      if(meta){
+        var metaEl=meta.querySelector('.recent-meta');
+        if(metaEl) metaEl.textContent='revoked';
+      }
     }else{
       btn.textContent='Failed';
       btn.disabled=false;
