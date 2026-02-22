@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io/fs"
 	"net/http/httptest"
@@ -34,7 +35,7 @@ func testServer(t *testing.T) *httptest.Server {
 
 	bu := baseurl.New("http://placeholder")
 	cfg := server.Config{BaseURL: bu}
-	srv := server.New(cfg, st, subFS)
+	srv := server.New(context.Background(), cfg, st, subFS)
 	ts := httptest.NewServer(srv.Handler())
 	bu.Set(ts.URL)
 	t.Cleanup(ts.Close)

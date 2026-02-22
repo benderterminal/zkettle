@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -466,6 +467,28 @@ func TestSetUserVersion_HostedRange(t *testing.T) {
 	}
 	if v != 100 {
 		t.Fatalf("user_version = %d, want 100", v)
+	}
+}
+
+func TestSetUserVersion_Negative(t *testing.T) {
+	s := newTestStore(t)
+	err := s.SetUserVersion(-1)
+	if err == nil {
+		t.Fatal("expected error for negative user_version")
+	}
+	if !strings.Contains(err.Error(), "non-negative") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSetUserVersion_Overflow(t *testing.T) {
+	s := newTestStore(t)
+	err := s.SetUserVersion(1 << 32) // exceeds 32-bit signed int
+	if err == nil {
+		t.Fatal("expected error for overflowing user_version")
+	}
+	if !strings.Contains(err.Error(), "32-bit") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

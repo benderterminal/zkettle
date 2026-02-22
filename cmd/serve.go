@@ -167,7 +167,7 @@ func runServe(p serveParams) error {
 		TrustProxy:  p.TrustProxy,
 		CORSOrigins: p.CORSOrigins,
 	}
-	srv := server.New(cfg, st, subFS)
+	srv := server.New(ctx, cfg, st, subFS)
 
 	handler := server.BuildHandler(ctx, cfg, srv.Handler())
 

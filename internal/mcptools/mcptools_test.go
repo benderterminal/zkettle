@@ -61,7 +61,7 @@ func setupTestEnv(t *testing.T) (*mcp.Server, *store.Store, string) {
 	}
 	bu := baseurl.New("")
 	cfg := server.Config{BaseURL: bu}
-	srv := server.New(cfg, st, viewerFS)
+	srv := server.New(context.Background(), cfg, st, viewerFS)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 

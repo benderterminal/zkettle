@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -36,7 +37,7 @@ func newTestServerWithConfig(t *testing.T, cfg Config) (*Server, *store.Store) {
 		"index.html":  &fstest.MapFile{Data: []byte("<html>zKettle landing</html>")},
 		"create.html": &fstest.MapFile{Data: []byte("<html><body>create secret<script>console.log('ok')</script></body></html>")},
 	}
-	srv := New(cfg, st, viewerFS)
+	srv := New(context.Background(), cfg, st, viewerFS)
 	return srv, st
 }
 

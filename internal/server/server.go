@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -84,13 +85,13 @@ type Server struct {
 	createLimiter *ipRateLimiter
 }
 
-func New(cfg Config, st *store.Store, webFS fs.FS) *Server {
+func New(ctx context.Context, cfg Config, st *store.Store, webFS fs.FS) *Server {
 	s := &Server{
 		cfg:           cfg,
 		store:         st,
 		webFS:         webFS,
 		mux:           http.NewServeMux(),
-		createLimiter: newIPRateLimiter(context.Background(), 10, 10, 10000),
+		createLimiter: newIPRateLimiter(ctx, 10, 10, 10000),
 	}
 	s.mux.HandleFunc("GET /{$}", s.handleLanding)
 	s.mux.HandleFunc("GET /create", s.handleCreatePage)
@@ -254,20 +255,9 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if meta.Recipient != nil && *meta.Recipient != "" {
-		if s.cfg.AuthFunc == nil {
-			// Self-hosted instance with no auth — can't verify recipient
-			writeError(w, http.StatusForbidden, "this secret requires authentication on a hosted instance")
-			return
-		}
-		// Auth is available — authenticate the request and store identity in context.
-		// The hosted server's AuthFunc handles the actual recipient matching.
-		identity, authErr := s.cfg.AuthFunc(r)
-		if authErr != nil {
-			writeError(w, http.StatusUnauthorized, "authentication required")
-			return
-		}
-		r = r.WithContext(auth.ContextWithIdentity(r.Context(), identity))
+	r, ok := s.checkRecipientAuth(w, r, meta)
+	if !ok {
+		return
 	}
 
 	encrypted, iv, err := s.store.Get(secretID)
@@ -337,7 +327,6 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check recipient gating: if the secret has a recipient, require auth.
 	meta, err := s.store.GetMeta(secretID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -348,19 +337,37 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if meta.Recipient != nil && *meta.Recipient != "" {
-		if s.cfg.AuthFunc == nil {
-			writeError(w, http.StatusForbidden, "this secret requires authentication on a hosted instance")
-			return
-		}
-		if _, authErr := s.cfg.AuthFunc(r); authErr != nil {
-			writeError(w, http.StatusUnauthorized, "authentication required")
-			return
-		}
+	if _, ok := s.checkRecipientAuth(w, r, meta); !ok {
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"available"}`))
+}
+
+// checkRecipientAuth enforces recipient gating for a secret.
+// If the secret has a recipient, it verifies auth and stores identity in context.
+// Returns the (possibly updated) request and true if the caller should proceed,
+// or writes an error response and returns false.
+func (s *Server) checkRecipientAuth(w http.ResponseWriter, r *http.Request, meta *store.SecretMeta) (*http.Request, bool) {
+	if meta.Recipient == nil || *meta.Recipient == "" {
+		return r, true
+	}
+	if s.cfg.AuthFunc == nil {
+		// Self-hosted instance with no auth — can't verify recipient
+		writeError(w, http.StatusForbidden, "this secret requires authentication on a hosted instance")
+		return r, false
+	}
+	// Auth is available — authenticate the request and store identity in context.
+	// The hosted server's AuthFunc handles the actual recipient matching.
+	identity, authErr := s.cfg.AuthFunc(r)
+	if authErr != nil {
+		slog.Warn("authentication failed", "secret_id", meta.ID, "error", authErr)
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return r, false
+	}
+	r = r.WithContext(auth.ContextWithIdentity(r.Context(), identity))
+	return r, true
 }
 
 func (s *Server) servePage(w http.ResponseWriter, name string) {

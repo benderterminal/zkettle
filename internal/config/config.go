@@ -110,6 +110,9 @@ func LoadEnv() (Config, map[string]bool) {
 // Validate checks that Config fields contain valid values.
 // Returns an error if any field is invalid.
 func (c Config) Validate() error {
+	if c.Port < 0 || c.Port > 65535 {
+		return fmt.Errorf("invalid port %d: must be 0-65535", c.Port)
+	}
 	switch c.LogFormat {
 	case "", "json", "text":
 		// valid

@@ -263,3 +263,29 @@ func TestMergeUnknownKeysIgnored(t *testing.T) {
 		t.Fatalf("unknown keys should be ignored, got error: %v", err)
 	}
 }
+
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{"valid defaults", Defaults(), false},
+		{"valid json log", Config{Port: 3000, LogFormat: "json"}, false},
+		{"valid text log", Config{Port: 3000, LogFormat: "text"}, false},
+		{"valid empty log", Config{Port: 3000, LogFormat: ""}, false},
+		{"invalid log format", Config{Port: 3000, LogFormat: "xml"}, true},
+		{"negative port", Config{Port: -1}, true},
+		{"port too high", Config{Port: 65536}, true},
+		{"max valid port", Config{Port: 65535}, false},
+		{"zero port", Config{Port: 0}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

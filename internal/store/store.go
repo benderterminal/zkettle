@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -324,6 +325,9 @@ func (s *Store) UserVersion() (int, error) {
 func (s *Store) SetUserVersion(v int) error {
 	if v < 0 {
 		return fmt.Errorf("user_version must be non-negative, got %d", v)
+	}
+	if v > math.MaxInt32 {
+		return fmt.Errorf("user_version must fit in 32-bit signed integer, got %d", v)
 	}
 	_, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", v))
 	return err

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,7 +29,7 @@ func newIntegrationServer(t *testing.T) (*httptest.Server, *store.Store) {
 		"index.html":  &fstest.MapFile{Data: []byte("<html>landing</html>")},
 		"create.html": &fstest.MapFile{Data: []byte("<html>create</html>")},
 	}
-	srv := New(Config{}, st, viewerFS)
+	srv := New(context.Background(), Config{}, st, viewerFS)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, st
@@ -199,7 +200,7 @@ func TestIntegrationCORSHeaders(t *testing.T) {
 		"index.html":  &fstest.MapFile{Data: []byte("<html>landing</html>")},
 		"create.html": &fstest.MapFile{Data: []byte("<html>create</html>")},
 	}
-	srv := New(Config{}, st, viewerFS)
+	srv := New(context.Background(), Config{}, st, viewerFS)
 
 	// Wrap with CORS middleware
 	handler := CORSMiddleware([]string{"https://example.com"})(srv.Handler())
@@ -294,7 +295,7 @@ func newAuthServer(t *testing.T, authFunc func(r *http.Request) (*auth.Identity,
 		"index.html":  &fstest.MapFile{Data: []byte("<html>landing</html>")},
 		"create.html": &fstest.MapFile{Data: []byte("<html>create</html>")},
 	}
-	srv := New(Config{AuthFunc: authFunc}, st, viewerFS)
+	srv := New(context.Background(), Config{AuthFunc: authFunc}, st, viewerFS)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, st
