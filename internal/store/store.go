@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,13 +81,19 @@ func New(dbPath string) (*Store, error) {
 		return nil, err
 	}
 
-	// Migrate: add delete_token column if missing (pre-existing databases)
-	db.Exec(`ALTER TABLE secrets ADD COLUMN delete_token TEXT NOT NULL DEFAULT ''`)
-
-	// Migrate: add recipient gating and creator columns (v0.2.0)
-	db.Exec(`ALTER TABLE secrets ADD COLUMN creator_id TEXT`)
-	db.Exec(`ALTER TABLE secrets ADD COLUMN recipient TEXT`)
-	db.Exec(`ALTER TABLE secrets ADD COLUMN recipient_type TEXT`)
+	// Migrate: add columns if missing (pre-existing databases).
+	// Only "duplicate column" errors are expected and ignored; other errors are fatal.
+	for _, stmt := range []string{
+		`ALTER TABLE secrets ADD COLUMN delete_token TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE secrets ADD COLUMN creator_id TEXT`,
+		`ALTER TABLE secrets ADD COLUMN recipient TEXT`,
+		`ALTER TABLE secrets ADD COLUMN recipient_type TEXT`,
+	} {
+		if _, err := db.Exec(stmt); err != nil && !isDuplicateColumn(err) {
+			db.Close()
+			return nil, err
+		}
+	}
 
 	// Index for efficient expiry cleanup queries
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_expires ON secrets(expires_at)`)
@@ -154,6 +161,12 @@ func (s *Store) scheduleNextCleanup() {
 	})
 }
 
+// isDuplicateColumn returns true if the error is a SQLite "duplicate column" error,
+// which is expected during migrations when the column already exists.
+func isDuplicateColumn(err error) bool {
+	return strings.Contains(err.Error(), "duplicate column")
+}
+
 // CreateOptions holds optional fields for secret creation.
 // All fields are pointers so nil means "not set" (stored as NULL).
 type CreateOptions struct {
@@ -162,6 +175,8 @@ type CreateOptions struct {
 	RecipientType *string // "email" or "wallet"
 }
 
+// Create stores a new secret. opts accepts at most one CreateOptions;
+// if multiple are passed, only the first is used.
 func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time, deleteToken string, opts ...CreateOptions) error {
 	var opt CreateOptions
 	if len(opts) > 0 {
@@ -247,7 +262,7 @@ func (s *Store) Delete(id string, deleteToken string) error {
 
 func (s *Store) List() ([]SecretMeta, error) {
 	rows, err := s.db.Query(
-		`SELECT id, views_left, expires_at, created_at FROM secrets WHERE expires_at > unixepoch()`,
+		`SELECT id, views_left, expires_at, created_at, creator_id, recipient, recipient_type FROM secrets WHERE expires_at > unixepoch()`,
 	)
 	if err != nil {
 		return nil, err
@@ -258,7 +273,7 @@ func (s *Store) List() ([]SecretMeta, error) {
 	for rows.Next() {
 		var m SecretMeta
 		var expiresUnix, createdUnix int64
-		if err := rows.Scan(&m.ID, &m.ViewsLeft, &expiresUnix, &createdUnix); err != nil {
+		if err := rows.Scan(&m.ID, &m.ViewsLeft, &expiresUnix, &createdUnix, &m.CreatorID, &m.Recipient, &m.RecipientType); err != nil {
 			return nil, err
 		}
 		m.ExpiresAt = time.Unix(expiresUnix, 0)
@@ -307,6 +322,9 @@ func (s *Store) UserVersion() (int, error) {
 
 // SetUserVersion sets PRAGMA user_version to the given value.
 func (s *Store) SetUserVersion(v int) error {
+	if v < 0 {
+		return fmt.Errorf("user_version must be non-negative, got %d", v)
+	}
 	_, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", v))
 	return err
 }

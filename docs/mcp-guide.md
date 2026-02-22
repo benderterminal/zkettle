@@ -63,6 +63,7 @@ Add to your Cursor MCP settings (`.cursor/mcp.json`):
 | `--base-url` | `http://localhost:{port}` | Base URL for generated secret links |
 | `--tunnel` | off | Expose server via Cloudflare Quick Tunnel |
 | `--trust-proxy` | off | Trust `X-Forwarded-For` headers (behind a reverse proxy) |
+| `--log-format` | `text` | Log format: `json` or `text` |
 
 ## Tool Reference
 

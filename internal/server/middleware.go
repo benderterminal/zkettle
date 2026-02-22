@@ -48,9 +48,9 @@ func RequestLogger(trustProxy bool, proxyDepth int) func(http.Handler) http.Hand
 	}
 }
 
-// generateRequestID returns 8 hex characters (4 random bytes) for log correlation.
+// generateRequestID returns 16 hex characters (8 random bytes) for log correlation.
 func generateRequestID() string {
-	b := make([]byte, 4)
+	b := make([]byte, 8)
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }

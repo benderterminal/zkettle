@@ -34,14 +34,14 @@ type Config struct {
 	// All are optional; nil values are safe defaults (no auth, no extra routes, no middleware).
 
 	// AuthFunc extracts an identity from a request. nil = no authentication.
-	// Added to Config but not yet called by any handler.
+	// Used by handleGet and handleStatus to enforce recipient gating.
 	AuthFunc func(r *http.Request) (*auth.Identity, error)
 
 	// ExtraRoutes registers additional routes on the server mux. nil = no extra routes.
 	ExtraRoutes func(mux *http.ServeMux)
 
 	// Middleware is a chain of additional middleware applied after security headers.
-	// Each function wraps the handler; they are applied in slice order (first = outermost).
+	// Each function wraps the handler; they are applied in slice order (last = outermost).
 	Middleware []func(http.Handler) http.Handler
 }
 
@@ -241,6 +241,9 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check recipient gating before consuming a view.
+	// Note: there is a small TOCTOU window between GetMeta and Get. A concurrent
+	// request could consume the last view between these calls. The second caller
+	// would get a 404, which is acceptable behavior.
 	meta, err := s.store.GetMeta(secretID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -292,8 +295,8 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := ""
-	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-		token = strings.TrimPrefix(auth, "Bearer ")
+	if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 	if token == "" {
 		writeError(w, http.StatusUnauthorized, "Authorization header with Bearer token required")
@@ -333,15 +336,29 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid secret ID format")
 		return
 	}
-	err := s.store.Status(secretID)
+
+	// Check recipient gating: if the secret has a recipient, require auth.
+	meta, err := s.store.GetMeta(secretID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrExpired) {
+		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "secret not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to check secret status")
 		return
 	}
+
+	if meta.Recipient != nil && *meta.Recipient != "" {
+		if s.cfg.AuthFunc == nil {
+			writeError(w, http.StatusForbidden, "this secret requires authentication on a hosted instance")
+			return
+		}
+		if _, authErr := s.cfg.AuthFunc(r); authErr != nil {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"available"}`))
 }

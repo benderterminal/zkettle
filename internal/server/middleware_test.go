@@ -244,8 +244,8 @@ func TestRequestLoggerSetsRequestID(t *testing.T) {
 	if reqID == "" {
 		t.Fatal("expected X-Request-Id header to be set")
 	}
-	if len(reqID) != 8 {
-		t.Fatalf("expected 8 hex chars, got %d chars: %q", len(reqID), reqID)
+	if len(reqID) != 16 {
+		t.Fatalf("expected 16 hex chars, got %d chars: %q", len(reqID), reqID)
 	}
 }
 

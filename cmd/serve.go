@@ -30,6 +30,7 @@ func RunServe(args []string, webFS embed.FS) error {
 	corsOrigins := f.String("cors-origins", "", "Comma-separated list of allowed CORS origins")
 	tunnelFlag := f.Bool("tunnel", false, "Expose server via Cloudflare Quick Tunnel")
 	trustProxy := f.Bool("trust-proxy", false, "Trust X-Forwarded-For/X-Real-Ip headers (enable when behind a reverse proxy)")
+	logFormat := f.String("log-format", "", "Log format: json or text")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
@@ -65,6 +66,9 @@ func RunServe(args []string, webFS embed.FS) error {
 	if flagSet["trust-proxy"] {
 		flagCfg.TrustProxy = *trustProxy
 	}
+	if flagSet["log-format"] {
+		flagCfg.LogFormat = *logFormat
+	}
 
 	defaults := config.Defaults()
 	fileCfg, filePath, err := config.LoadFile()
@@ -73,6 +77,10 @@ func RunServe(args []string, webFS embed.FS) error {
 	}
 	envCfg, envSet := config.LoadEnv()
 	resolved := config.Merge(defaults, fileCfg, filePath != "", envCfg, envSet, flagCfg, flagSet)
+
+	if err := resolved.Validate(); err != nil {
+		return err
+	}
 
 	if resolved.Tunnel && resolved.BaseURL != "" {
 		return fmt.Errorf("--tunnel and --base-url are mutually exclusive")
@@ -103,21 +111,41 @@ func RunServe(args []string, webFS embed.FS) error {
 		slog.Info("loaded config file", "path", filePath)
 	}
 
-	return runServe(resolved.Host, resolved.Port, resolved.Data, bu, resolved.CORSOrigins, resolved.Tunnel, resolved.TrustProxy, resolved.LogFormat, webFS)
+	return runServe(serveParams{
+		Host:        resolved.Host,
+		Port:        resolved.Port,
+		DataDir:     resolved.Data,
+		BaseURL:     bu,
+		CORSOrigins: resolved.CORSOrigins,
+		UseTunnel:   resolved.Tunnel,
+		TrustProxy:  resolved.TrustProxy,
+		WebFS:       webFS,
+	})
 }
 
-func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOrigins []string, useTunnel bool, trustProxy bool, logFormat string, webFS embed.FS) error {
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+type serveParams struct {
+	Host        string
+	Port        int
+	DataDir     string
+	BaseURL     *baseurl.BaseURL
+	CORSOrigins []string
+	UseTunnel   bool
+	TrustProxy  bool
+	WebFS       embed.FS
+}
+
+func runServe(p serveParams) error {
+	if err := os.MkdirAll(p.DataDir, 0o700); err != nil {
 		return fmt.Errorf("creating data directory: %w", err)
 	}
 
-	dbPath := dataDir + "/zkettle.db"
+	dbPath := p.DataDir + "/zkettle.db"
 	st, err := store.New(dbPath)
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
 	}
 
-	subFS, err := fs.Sub(webFS, "web")
+	subFS, err := fs.Sub(p.WebFS, "web")
 	if err != nil {
 		return fmt.Errorf("creating web fs: %w", err)
 	}
@@ -126,26 +154,25 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 	defer stop()
 
 	slog.Info("configuration",
-		"port", port,
-		"host", host,
-		"data", dataDir,
-		"base_url", bu.Get(),
-		"cors_origins", corsOrigins,
-		"trust_proxy", trustProxy,
-		"log_format", logFormat,
+		"port", p.Port,
+		"host", p.Host,
+		"data", p.DataDir,
+		"base_url", p.BaseURL.Get(),
+		"cors_origins", p.CORSOrigins,
+		"trust_proxy", p.TrustProxy,
 	)
 
 	cfg := server.Config{
-		BaseURL:     bu,
-		TrustProxy:  trustProxy,
-		CORSOrigins: corsOrigins,
+		BaseURL:     p.BaseURL,
+		TrustProxy:  p.TrustProxy,
+		CORSOrigins: p.CORSOrigins,
 	}
 	srv := server.New(cfg, st, subFS)
 
 	handler := server.BuildHandler(ctx, cfg, srv.Handler())
 
 	httpSrv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", host, port),
+		Addr:              fmt.Sprintf("%s:%d", p.Host, p.Port),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -156,12 +183,12 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 	errCh := make(chan error, 1)
 	go func() {
 		PrintBannerFull(os.Stderr)
-		slog.Info("server started", "host", host, "port", port)
+		slog.Info("server started", "host", p.Host, "port", p.Port)
 		errCh <- httpSrv.ListenAndServe()
 	}()
 
-	if useTunnel {
-		tun, err := tunnel.Start(ctx, port)
+	if p.UseTunnel {
+		tun, err := tunnel.Start(ctx, p.Port)
 		if err != nil {
 			tunShutdownCtx, tunCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer tunCancel()
@@ -170,12 +197,12 @@ func runServe(host string, port int, dataDir string, bu *baseurl.BaseURL, corsOr
 			return fmt.Errorf("starting tunnel: %w", err)
 		}
 		defer tun.Close()
-		bu.Set(tun.URL())
+		p.BaseURL.Set(tun.URL())
 		waitForTunnel(tun.URL())
 		fmt.Fprintf(os.Stderr, "\r\033[K\n")
 		printQuickStart(tun.URL())
 	} else {
-		printQuickStart(fmt.Sprintf("http://%s:%d", host, port))
+		printQuickStart(fmt.Sprintf("http://%s:%d", p.Host, p.Port))
 	}
 
 	select {

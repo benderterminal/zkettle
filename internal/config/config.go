@@ -107,6 +107,18 @@ func LoadEnv() (Config, map[string]bool) {
 	return cfg, set
 }
 
+// Validate checks that Config fields contain valid values.
+// Returns an error if any field is invalid.
+func (c Config) Validate() error {
+	switch c.LogFormat {
+	case "", "json", "text":
+		// valid
+	default:
+		return fmt.Errorf("invalid log_format %q: must be \"json\", \"text\", or empty", c.LogFormat)
+	}
+	return nil
+}
+
 // Merge combines defaults, file config, env config, and flag overrides.
 // Precedence: flags > env > file > defaults.
 // flagSet indicates which flags were explicitly set by the user (not just defaults).

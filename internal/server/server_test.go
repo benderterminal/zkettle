@@ -617,10 +617,9 @@ func TestMiddlewareWrapsHandler(t *testing.T) {
 		t.Fatal("security headers missing when middleware is applied")
 	}
 
-	// Middleware applied in order: mw1 is first in slice = outermost wrapper.
+	// Middleware applied in slice order: mw1 wraps first, then mw2 wraps mw1.
+	// Last in slice = outermost. So mw2 executes first (outermost).
 	// Execution order: mw2-before, mw1-before, handler, mw1-after, mw2-after
-	// Because mw1 is applied first (wrapping securityHeaders+mux),
-	// then mw2 wraps mw1. So mw2 is outermost.
 	expected := []string{"mw2-before", "mw1-before", "mw1-after", "mw2-after"}
 	if len(order) != len(expected) {
 		t.Fatalf("middleware execution order: got %v, want %v", order, expected)
