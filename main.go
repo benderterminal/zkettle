@@ -60,7 +60,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `Usage: zkettle <command> [options]
 
 Commands:
-  serve     Start the HTTP server
+  serve     Start the HTTP server (use --tunnel for public Cloudflare URL)
   create    Encrypt and store a secret (reads from stdin)
   read      Retrieve and decrypt a secret
   revoke    Delete a secret
