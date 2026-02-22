@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/taw/zkettle/internal/baseurl"
+	"github.com/taw/zkettle/baseurl"
 	"github.com/taw/zkettle/internal/config"
 	"github.com/taw/zkettle/internal/mcptools"
-	"github.com/taw/zkettle/internal/server"
-	"github.com/taw/zkettle/internal/store"
+	"github.com/taw/zkettle/server"
+	"github.com/taw/zkettle/store"
 	"github.com/taw/zkettle/internal/tunnel"
 )
 

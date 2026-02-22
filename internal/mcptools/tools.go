@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/taw/zkettle/internal/baseurl"
+	"github.com/taw/zkettle/baseurl"
 	"github.com/taw/zkettle/internal/crypto"
-	"github.com/taw/zkettle/internal/id"
-	"github.com/taw/zkettle/internal/store"
+	"github.com/taw/zkettle/id"
+	"github.com/taw/zkettle/store"
 )
 
 // isPrivateIP returns true if the IP is in a private, loopback, or link-local range.

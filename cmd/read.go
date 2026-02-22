@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/taw/zkettle/internal/crypto"
-	"github.com/taw/zkettle/internal/id"
+	"github.com/taw/zkettle/id"
 )
 
 func RunRead(args []string) error {

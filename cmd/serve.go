@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/taw/zkettle/internal/baseurl"
+	"github.com/taw/zkettle/baseurl"
 	"github.com/taw/zkettle/internal/config"
-	"github.com/taw/zkettle/internal/server"
-	"github.com/taw/zkettle/internal/store"
+	"github.com/taw/zkettle/server"
+	"github.com/taw/zkettle/store"
 	"github.com/taw/zkettle/internal/tunnel"
 )
 
