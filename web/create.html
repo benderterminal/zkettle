@@ -242,8 +242,6 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
 .recent-row{display:flex;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid #222;font-size:.75rem}
 .recent-info{flex:1;color:#888;overflow:hidden;text-overflow:ellipsis}
 .recent-id{white-space:nowrap}
-.recent-id a{color:#9DED9D;text-decoration:none}
-.recent-id a:hover{text-decoration:underline}
 .recent-meta{color:#555;font-size:.65rem;margin-top:.15rem}
 .recent-btn-sm{font-size:.65rem;padding:.3rem .6rem}
 .recent-expired .recent-info{opacity:.5}
@@ -382,9 +380,6 @@ noscript{
 
 var currentSecretID='';
 var currentDeleteToken='';
-
-// In-memory only — URLs with decryption keys are never persisted to localStorage
-var sessionURLs={};
 
 // Track active preset values
 var activeViews=1;
@@ -549,16 +544,7 @@ function renderRecent(){
 
     var idLine=document.createElement('div');
     idLine.className='recent-id';
-    var idText=t.id.substring(0,12)+'…';
-    if(sessionURLs[t.id]){
-      var link=document.createElement('a');
-      link.href=sessionURLs[t.id];
-      link.textContent=idText;
-      link.title='Open secret viewer';
-      idLine.appendChild(link);
-    }else{
-      idLine.textContent=idText;
-    }
+    idLine.textContent=t.id.substring(0,12)+'…';
     info.appendChild(idLine);
 
     var meta=document.createElement('div');
@@ -732,7 +718,6 @@ async function createSecret(){
     var shareURL=window.location.origin+'/s/'+data.id+'#'+keyB64;
 
     saveToken(data.id,data.delete_token,{views:views,minutes:minutes,expiresAt:data.expires_at});
-    sessionURLs[data.id]=shareURL;
 
     // Show result
     document.getElementById('page-title').textContent='share this link';
