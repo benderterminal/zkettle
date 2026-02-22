@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,9 @@ import (
 	"github.com/taw/zkettle/store"
 )
 
+// maxBodySize is the HTTP request body limit (1MB). This must be larger than
+// MaxSecretSize (default 500KB) to account for base64 encoding + JSON overhead.
+// See also: maxSecretSize in cmd/create.go and maxContentSize in internal/mcptools/tools.go.
 const maxBodySize = 1024 * 1024 // 1MB
 
 type Config struct {
@@ -28,6 +32,10 @@ type Config struct {
 	ReadBurst   int
 	WriteRPS    float64
 	WriteBurst  int
+	Version        string
+	AdminToken     string
+	MaxSecretSize  int  // bytes; 0 = default (512000)
+	MetricsEnabled bool
 
 	// Extension points for composability.
 	// All are optional; nil values are safe defaults (no extra routes, no middleware).
@@ -95,6 +103,11 @@ func New(ctx context.Context, cfg Config, st *store.Store, webFS fs.FS) *Server 
 	s.mux.HandleFunc("DELETE /api/secrets/{id}", s.handleDelete)
 	s.mux.HandleFunc("GET /s/{id}", s.handleViewer)
 	s.mux.HandleFunc("GET /health", s.handleHealth)
+	s.mux.HandleFunc("GET /api/admin/secrets", s.handleAdminListSecrets)
+
+	if cfg.MetricsEnabled {
+		s.mux.HandleFunc("GET /metrics", s.handleMetrics)
+	}
 
 	if cfg.ExtraRoutes != nil {
 		cfg.ExtraRoutes(s.mux)
@@ -180,8 +193,12 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid base64url for encrypted")
 		return
 	}
-	if len(encBytes) > 500*1024 {
-		writeError(w, http.StatusBadRequest, "encrypted exceeds 500KB limit")
+	maxSize := s.cfg.MaxSecretSize
+	if maxSize == 0 {
+		maxSize = 512000 // 500KB default
+	}
+	if len(encBytes) > maxSize {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("encrypted exceeds %dKB limit", maxSize/1024))
 		return
 	}
 
@@ -334,6 +351,13 @@ func (s *Server) servePage(w http.ResponseWriter, name string) {
 	html := strings.ReplaceAll(string(data), "<script>", fmt.Sprintf(`<script nonce="%s">`, nonce))
 	html = strings.ReplaceAll(html, "<style>", fmt.Sprintf(`<style nonce="%s">`, nonce))
 
+	// Inject version
+	version := s.cfg.Version
+	if version == "" {
+		version = "dev"
+	}
+	html = strings.ReplaceAll(html, "{{.Version}}", version)
+
 	// Set CSP header: nonce for both script-src and style-src
 	csp := fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'; style-src 'nonce-%s'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'self'", nonce, nonce)
 	w.Header().Set("Content-Security-Policy", csp)
@@ -349,6 +373,86 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+func (s *Server) handleAdminListSecrets(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.AdminToken == "" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	token := ""
+	if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	metas, err := s.store.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list secrets")
+		return
+	}
+
+	type adminSecret struct {
+		ID        string `json:"id"`
+		ViewsLeft int    `json:"views_left"`
+		ExpiresAt string `json:"expires_at"`
+		CreatedAt string `json:"created_at"`
+	}
+
+	secrets := make([]adminSecret, 0, len(metas))
+	for _, m := range metas {
+		secrets = append(secrets, adminSecret{
+			ID:        m.ID,
+			ViewsLeft: m.ViewsLeft,
+			ExpiresAt: m.ExpiresAt.UTC().Format(time.RFC3339),
+			CreatedAt: m.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(secrets)
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.AdminToken == "" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	token := ""
+	if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	metas, err := s.store.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to collect metrics")
+		return
+	}
+
+	metrics := map[string]int{
+		"zkettle_secrets_active": len(metas),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(metrics)
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {

@@ -23,10 +23,13 @@ jobs:
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
 
-          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64; do
             os=${target%/*}
             arch=${target#*/}
             output="zkettle-${os}-${arch}"
+            if [ "$os" = "windows" ]; then
+              output="${output}.exe"
+            fi
             GOOS=$os GOARCH=$arch go build -ldflags "$LDFLAGS" -o "dist/${output}" .
           done
 

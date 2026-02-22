@@ -2,11 +2,9 @@ package mcptools
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/taw/zkettle/baseurl"
 	"github.com/taw/zkettle/internal/crypto"
+	"github.com/taw/zkettle/internal/generate"
 	"github.com/taw/zkettle/id"
 	"github.com/taw/zkettle/store"
 )
@@ -108,27 +107,10 @@ type RevokeSecretInput struct {
 
 type ListSecretsInput struct{}
 
+// maxContentSize is the plaintext size limit before encryption. The server's
+// maxBodySize (1MB) accommodates this after base64 encoding + JSON overhead.
+// See also: maxBodySize in server/server.go and maxSecretSize in cmd/create.go.
 const maxContentSize = 500 * 1024 // 500KB plaintext limit
-
-const (
-	genAlphanumeric = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	genSymbols      = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?"
-	genHex          = "0123456789abcdef"
-	genBase64URL    = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-)
-
-func generateRandomString(length int, charset string) (string, error) {
-	result := make([]byte, length)
-	max := big.NewInt(int64(len(charset)))
-	for i := range result {
-		idx, err := rand.Int(rand.Reader, max)
-		if err != nil {
-			return "", err
-		}
-		result[i] = charset[idx.Int64()]
-	}
-	return string(result), nil
-}
 
 type GenerateSecretInput struct {
 	Length  int    `json:"length,omitempty" jsonschema:"Length of generated secret in characters. Default 32. Range: 1-4096."`
@@ -352,18 +334,18 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 		var chars string
 		switch charsetName {
 		case "alphanumeric":
-			chars = genAlphanumeric
+			chars = generate.Alphanumeric
 		case "symbols":
-			chars = genSymbols
+			chars = generate.Symbols
 		case "hex":
-			chars = genHex
+			chars = generate.Hex
 		case "base64url":
-			chars = genBase64URL
+			chars = generate.Base64URL
 		default:
 			return nil, nil, fmt.Errorf("unknown charset %q (use: alphanumeric, symbols, hex, base64url)", charsetName)
 		}
 
-		secret, err := generateRandomString(length, chars)
+		secret, err := generate.RandomString(length, chars)
 		if err != nil {
 			return nil, nil, fmt.Errorf("generating secret: %w", err)
 		}

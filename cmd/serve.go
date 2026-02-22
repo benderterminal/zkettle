@@ -21,7 +21,7 @@ import (
 	"github.com/taw/zkettle/internal/tunnel"
 )
 
-func RunServe(args []string, webFS embed.FS) error {
+func RunServe(args []string, webFS embed.FS, version string) error {
 	f := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := f.Int("port", 0, "HTTP port")
 	host := f.String("host", "", "HTTP host (use 0.0.0.0 to listen on all interfaces)")
@@ -31,12 +31,19 @@ func RunServe(args []string, webFS embed.FS) error {
 	tunnelFlag := f.Bool("tunnel", false, "Expose server via Cloudflare Quick Tunnel")
 	trustProxy := f.Bool("trust-proxy", false, "Trust X-Forwarded-For/X-Real-Ip headers (enable when behind a reverse proxy)")
 	logFormat := f.String("log-format", "", "Log format: json or text")
+	tlsCert := f.String("tls-cert", "", "TLS certificate file path")
+	tlsKey := f.String("tls-key", "", "TLS private key file path")
+	adminToken := f.String("admin-token", "", "Admin API bearer token (enables GET /api/admin/secrets)")
+	maxSecretSize := f.Int("max-secret-size", 0, "Max encrypted secret size in bytes (default 512000)")
+	metricsFlag := f.Bool("metrics", false, "Enable /metrics endpoint")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
 
 	flagSet := make(map[string]bool)
-	f.Visit(func(fl *flag.Flag) { flagSet[fl.Name] = true })
+	f.Visit(func(fl *flag.Flag) {
+		flagSet[strings.ReplaceAll(fl.Name, "-", "_")] = true
+	})
 
 	var flagCfg config.Config
 	if flagSet["port"] {
@@ -48,10 +55,10 @@ func RunServe(args []string, webFS embed.FS) error {
 	if flagSet["data"] {
 		flagCfg.Data = *dataDir
 	}
-	if flagSet["base-url"] {
+	if flagSet["base_url"] {
 		flagCfg.BaseURL = *baseURLFlag
 	}
-	if flagSet["cors-origins"] {
+	if flagSet["cors_origins"] {
 		var origins []string
 		for _, o := range strings.Split(*corsOrigins, ",") {
 			if trimmed := strings.TrimSpace(o); trimmed != "" {
@@ -63,11 +70,26 @@ func RunServe(args []string, webFS embed.FS) error {
 	if flagSet["tunnel"] {
 		flagCfg.Tunnel = *tunnelFlag
 	}
-	if flagSet["trust-proxy"] {
+	if flagSet["trust_proxy"] {
 		flagCfg.TrustProxy = *trustProxy
 	}
-	if flagSet["log-format"] {
+	if flagSet["log_format"] {
 		flagCfg.LogFormat = *logFormat
+	}
+	if flagSet["tls_cert"] {
+		flagCfg.TLSCert = *tlsCert
+	}
+	if flagSet["tls_key"] {
+		flagCfg.TLSKey = *tlsKey
+	}
+	if flagSet["admin_token"] {
+		flagCfg.AdminToken = *adminToken
+	}
+	if flagSet["max_secret_size"] {
+		flagCfg.MaxSecretSize = *maxSecretSize
+	}
+	if flagSet["metrics"] {
+		flagCfg.Metrics = *metricsFlag
 	}
 
 	defaults := config.Defaults()
@@ -84,6 +106,9 @@ func RunServe(args []string, webFS embed.FS) error {
 
 	if resolved.Tunnel && resolved.BaseURL != "" {
 		return fmt.Errorf("--tunnel and --base-url are mutually exclusive")
+	}
+	if resolved.Tunnel && resolved.TLSCert != "" {
+		return fmt.Errorf("--tunnel and --tls-cert/--tls-key are mutually exclusive")
 	}
 
 	bu := baseurl.New(fmt.Sprintf("http://localhost:%d", resolved.Port))
@@ -111,41 +136,21 @@ func RunServe(args []string, webFS embed.FS) error {
 		slog.Info("loaded config file", "path", filePath)
 	}
 
-	return runServe(serveParams{
-		Host:        resolved.Host,
-		Port:        resolved.Port,
-		DataDir:     resolved.Data,
-		BaseURL:     bu,
-		CORSOrigins: resolved.CORSOrigins,
-		UseTunnel:   resolved.Tunnel,
-		TrustProxy:  resolved.TrustProxy,
-		WebFS:       webFS,
-	})
+	return runServe(resolved, bu, webFS, version)
 }
 
-type serveParams struct {
-	Host        string
-	Port        int
-	DataDir     string
-	BaseURL     *baseurl.BaseURL
-	CORSOrigins []string
-	UseTunnel   bool
-	TrustProxy  bool
-	WebFS       embed.FS
-}
-
-func runServe(p serveParams) error {
-	if err := os.MkdirAll(p.DataDir, 0o700); err != nil {
+func runServe(resolved config.Config, bu *baseurl.BaseURL, webFS embed.FS, version string) error {
+	if err := os.MkdirAll(resolved.Data, 0o700); err != nil {
 		return fmt.Errorf("creating data directory: %w", err)
 	}
 
-	dbPath := p.DataDir + "/zkettle.db"
+	dbPath := resolved.Data + "/zkettle.db"
 	st, err := store.New(dbPath)
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
 	}
 
-	subFS, err := fs.Sub(p.WebFS, "web")
+	subFS, err := fs.Sub(webFS, "web")
 	if err != nil {
 		return fmt.Errorf("creating web fs: %w", err)
 	}
@@ -154,25 +159,35 @@ func runServe(p serveParams) error {
 	defer stop()
 
 	slog.Info("configuration",
-		"port", p.Port,
-		"host", p.Host,
-		"data", p.DataDir,
-		"base_url", p.BaseURL.Get(),
-		"cors_origins", p.CORSOrigins,
-		"trust_proxy", p.TrustProxy,
+		"version", version,
+		"port", resolved.Port,
+		"host", resolved.Host,
+		"data", resolved.Data,
+		"base_url", bu.Get(),
+		"cors_origins", resolved.CORSOrigins,
+		"trust_proxy", resolved.TrustProxy,
+		"tls", resolved.TLSCert != "",
+		"admin_token", resolved.AdminToken != "",
+		"max_secret_size", resolved.MaxSecretSize,
+		"tunnel", resolved.Tunnel,
+		"metrics", resolved.Metrics,
 	)
 
 	cfg := server.Config{
-		BaseURL:     p.BaseURL,
-		TrustProxy:  p.TrustProxy,
-		CORSOrigins: p.CORSOrigins,
+		BaseURL:        bu,
+		TrustProxy:     resolved.TrustProxy,
+		CORSOrigins:    resolved.CORSOrigins,
+		Version:        version,
+		AdminToken:     resolved.AdminToken,
+		MaxSecretSize:  resolved.MaxSecretSize,
+		MetricsEnabled: resolved.Metrics,
 	}
 	srv := server.New(ctx, cfg, st, subFS)
 
 	handler := server.BuildHandler(ctx, cfg, srv.Handler())
 
 	httpSrv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", p.Host, p.Port),
+		Addr:              fmt.Sprintf("%s:%d", resolved.Host, resolved.Port),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -183,12 +198,17 @@ func runServe(p serveParams) error {
 	errCh := make(chan error, 1)
 	go func() {
 		PrintBannerFull(os.Stderr)
-		slog.Info("server started", "host", p.Host, "port", p.Port)
-		errCh <- httpSrv.ListenAndServe()
+		if resolved.TLSCert != "" {
+			slog.Info("server started (TLS)", "host", resolved.Host, "port", resolved.Port)
+			errCh <- httpSrv.ListenAndServeTLS(resolved.TLSCert, resolved.TLSKey)
+		} else {
+			slog.Info("server started", "host", resolved.Host, "port", resolved.Port)
+			errCh <- httpSrv.ListenAndServe()
+		}
 	}()
 
-	if p.UseTunnel {
-		tun, err := tunnel.Start(ctx, p.Port)
+	if resolved.Tunnel {
+		tun, err := tunnel.Start(ctx, resolved.Port)
 		if err != nil {
 			tunShutdownCtx, tunCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer tunCancel()
@@ -197,12 +217,12 @@ func runServe(p serveParams) error {
 			return fmt.Errorf("starting tunnel: %w", err)
 		}
 		defer tun.Close()
-		p.BaseURL.Set(tun.URL())
+		bu.Set(tun.URL())
 		waitForTunnel(tun.URL())
 		fmt.Fprintf(os.Stderr, "\r\033[K\n")
 		printQuickStart(tun.URL())
 	} else {
-		printQuickStart(fmt.Sprintf("http://%s:%d", p.Host, p.Port))
+		printQuickStart(fmt.Sprintf("http://%s:%d", resolved.Host, resolved.Port))
 	}
 
 	select {

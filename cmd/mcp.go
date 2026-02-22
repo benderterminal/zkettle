@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -36,7 +37,9 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	}
 
 	flagSet := make(map[string]bool)
-	f.Visit(func(fl *flag.Flag) { flagSet[fl.Name] = true })
+	f.Visit(func(fl *flag.Flag) {
+		flagSet[strings.ReplaceAll(fl.Name, "-", "_")] = true
+	})
 
 	var flagCfg config.Config
 	if flagSet["port"] {
@@ -48,16 +51,16 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	if flagSet["data"] {
 		flagCfg.Data = *dataDir
 	}
-	if flagSet["base-url"] {
+	if flagSet["base_url"] {
 		flagCfg.BaseURL = *baseURLFlag
 	}
 	if flagSet["tunnel"] {
 		flagCfg.Tunnel = *tunnelFlag
 	}
-	if flagSet["trust-proxy"] {
+	if flagSet["trust_proxy"] {
 		flagCfg.TrustProxy = *trustProxy
 	}
-	if flagSet["log-format"] {
+	if flagSet["log_format"] {
 		flagCfg.LogFormat = *logFormat
 	}
 
@@ -75,6 +78,9 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 
 	if resolved.Tunnel && resolved.BaseURL != "" {
 		return fmt.Errorf("--tunnel and --base-url are mutually exclusive")
+	}
+	if resolved.Tunnel && resolved.TLSCert != "" {
+		return fmt.Errorf("--tunnel and --tls-cert/--tls-key are mutually exclusive")
 	}
 
 	bu := baseurl.New(fmt.Sprintf("http://localhost:%d", resolved.Port))
@@ -113,7 +119,14 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 		slog.Info("loaded config file", "path", filePath)
 	}
 
-	cfg := server.Config{BaseURL: bu, TrustProxy: resolved.TrustProxy}
+	cfg := server.Config{
+		BaseURL:        bu,
+		TrustProxy:     resolved.TrustProxy,
+		Version:        version,
+		AdminToken:     resolved.AdminToken,
+		MaxSecretSize:  resolved.MaxSecretSize,
+		MetricsEnabled: resolved.Metrics,
+	}
 	srv := server.New(ctx, cfg, st, subFS)
 	handler := server.BuildHandler(ctx, cfg, srv.Handler())
 

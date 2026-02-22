@@ -1,6 +1,5 @@
 PLAN.md
 SUMMARY.md
-plans/
 docs/security-model.md
 dist/
 *.db
@@ -9,3 +8,5 @@ dist/
 data/
 .DS_Store
 /zkettle
+zkettle.toml
+*.env

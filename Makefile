@@ -11,6 +11,7 @@ build-all:
 	GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/zkettle-darwin-amd64 .
 	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/zkettle-linux-arm64 .
 	GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/zkettle-linux-amd64 .
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/zkettle-windows-amd64.exe .
 
 test:
 	go test ./...

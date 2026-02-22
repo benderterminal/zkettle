@@ -13,14 +13,19 @@ import (
 
 // Config holds all resolved configuration values.
 type Config struct {
-	Port        int      `toml:"port"`
-	Host        string   `toml:"host"`
-	Data        string   `toml:"data"`
-	BaseURL     string   `toml:"base_url"`
-	CORSOrigins []string `toml:"cors_origins"`
-	TrustProxy  bool     `toml:"trust_proxy"`
-	Tunnel      bool     `toml:"tunnel"`
-	LogFormat   string   `toml:"log_format"` // "json" or "text" (default: "text")
+	Port           int      `toml:"port"`
+	Host           string   `toml:"host"`
+	Data           string   `toml:"data"`
+	BaseURL        string   `toml:"base_url"`
+	CORSOrigins    []string `toml:"cors_origins"`
+	TrustProxy     bool     `toml:"trust_proxy"`
+	Tunnel         bool     `toml:"tunnel"`
+	LogFormat      string   `toml:"log_format"` // "json" or "text" (default: "text")
+	TLSCert        string   `toml:"tls_cert"`
+	TLSKey         string   `toml:"tls_key"`
+	AdminToken     string   `toml:"admin_token"`
+	MaxSecretSize  int      `toml:"max_secret_size"` // bytes; 0 = default (512000)
+	Metrics        bool     `toml:"metrics"`
 }
 
 // Defaults returns a Config with default values.
@@ -54,7 +59,7 @@ func LoadFile() (Config, string, map[string]bool, error) {
 			return Config{}, p, nil, fmt.Errorf("parsing config file %s: %w", p, err)
 		}
 		fileSet := make(map[string]bool)
-		for _, key := range []string{"port", "host", "data", "base_url", "cors_origins", "trust_proxy", "tunnel", "log_format"} {
+		for _, key := range []string{"port", "host", "data", "base_url", "cors_origins", "trust_proxy", "tunnel", "log_format", "tls_cert", "tls_key", "admin_token", "max_secret_size", "metrics"} {
 			if md.IsDefined(key) {
 				fileSet[key] = true
 			}
@@ -112,6 +117,28 @@ func LoadEnv() (Config, map[string]bool) {
 		cfg.LogFormat = v
 		set["log_format"] = true
 	}
+	if v := os.Getenv("ZKETTLE_TLS_CERT"); v != "" {
+		cfg.TLSCert = v
+		set["tls_cert"] = true
+	}
+	if v := os.Getenv("ZKETTLE_TLS_KEY"); v != "" {
+		cfg.TLSKey = v
+		set["tls_key"] = true
+	}
+	if v := os.Getenv("ZKETTLE_ADMIN_TOKEN"); v != "" {
+		cfg.AdminToken = v
+		set["admin_token"] = true
+	}
+	if v := os.Getenv("ZKETTLE_MAX_SECRET_SIZE"); v != "" {
+		if size, err := strconv.Atoi(v); err == nil {
+			cfg.MaxSecretSize = size
+			set["max_secret_size"] = true
+		}
+	}
+	if v := os.Getenv("ZKETTLE_METRICS"); v != "" {
+		cfg.Metrics = v == "true" || v == "1" || v == "yes"
+		set["metrics"] = true
+	}
 
 	return cfg, set
 }
@@ -133,93 +160,77 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("invalid log_format %q: must be \"json\", \"text\", or empty", c.LogFormat)
 	}
+	if (c.TLSCert == "") != (c.TLSKey == "") {
+		return fmt.Errorf("--tls-cert and --tls-key must both be set or both be empty")
+	}
+	if c.TLSCert != "" {
+		if _, err := os.Stat(c.TLSCert); err != nil {
+			return fmt.Errorf("tls-cert file %q: %w", c.TLSCert, err)
+		}
+		if _, err := os.Stat(c.TLSKey); err != nil {
+			return fmt.Errorf("tls-key file %q: %w", c.TLSKey, err)
+		}
+	}
+	if c.MaxSecretSize < 0 {
+		return fmt.Errorf("invalid max-secret-size %d: must be non-negative", c.MaxSecretSize)
+	}
+	if c.AdminToken != "" && len(c.AdminToken) < 16 {
+		return fmt.Errorf("admin-token must be at least 16 characters")
+	}
 	return nil
+}
+
+// mergeLayer applies fields from src to dst for each key present in set.
+// All keys use underscore format (e.g. "base_url", "trust_proxy").
+func mergeLayer(dst *Config, src Config, set map[string]bool) {
+	if set["port"] {
+		dst.Port = src.Port
+	}
+	if set["host"] {
+		dst.Host = src.Host
+	}
+	if set["data"] {
+		dst.Data = src.Data
+	}
+	if set["base_url"] {
+		dst.BaseURL = src.BaseURL
+	}
+	if set["cors_origins"] {
+		dst.CORSOrigins = src.CORSOrigins
+	}
+	if set["trust_proxy"] {
+		dst.TrustProxy = src.TrustProxy
+	}
+	if set["tunnel"] {
+		dst.Tunnel = src.Tunnel
+	}
+	if set["log_format"] {
+		dst.LogFormat = src.LogFormat
+	}
+	if set["tls_cert"] {
+		dst.TLSCert = src.TLSCert
+	}
+	if set["tls_key"] {
+		dst.TLSKey = src.TLSKey
+	}
+	if set["admin_token"] {
+		dst.AdminToken = src.AdminToken
+	}
+	if set["max_secret_size"] {
+		dst.MaxSecretSize = src.MaxSecretSize
+	}
+	if set["metrics"] {
+		dst.Metrics = src.Metrics
+	}
 }
 
 // Merge combines defaults, file config, env config, and flag overrides.
 // Precedence: flags > env > file > defaults.
-// fileSet and envSet indicate which fields were explicitly set in the file/env layers.
-// flagSet indicates which flags were explicitly set by the user (not just defaults).
+// All set maps use underscore-format keys (e.g. "base_url", "trust_proxy").
 func Merge(defaults, file Config, fileSet map[string]bool, env Config, envSet map[string]bool, flags Config, flagSet map[string]bool) Config {
 	result := defaults
-
-	// Layer 1: file overrides defaults (only fields explicitly set in file)
-	if fileSet["port"] {
-		result.Port = file.Port
-	}
-	if fileSet["host"] {
-		result.Host = file.Host
-	}
-	if fileSet["data"] {
-		result.Data = file.Data
-	}
-	if fileSet["base_url"] {
-		result.BaseURL = file.BaseURL
-	}
-	if fileSet["cors_origins"] {
-		result.CORSOrigins = file.CORSOrigins
-	}
-	if fileSet["trust_proxy"] {
-		result.TrustProxy = file.TrustProxy
-	}
-	if fileSet["tunnel"] {
-		result.Tunnel = file.Tunnel
-	}
-	if fileSet["log_format"] {
-		result.LogFormat = file.LogFormat
-	}
-
-	// Layer 2: env overrides file
-	if envSet["port"] {
-		result.Port = env.Port
-	}
-	if envSet["host"] {
-		result.Host = env.Host
-	}
-	if envSet["data"] {
-		result.Data = env.Data
-	}
-	if envSet["base_url"] {
-		result.BaseURL = env.BaseURL
-	}
-	if envSet["cors_origins"] {
-		result.CORSOrigins = env.CORSOrigins
-	}
-	if envSet["trust_proxy"] {
-		result.TrustProxy = env.TrustProxy
-	}
-	if envSet["tunnel"] {
-		result.Tunnel = env.Tunnel
-	}
-	if envSet["log_format"] {
-		result.LogFormat = env.LogFormat
-	}
-
-	// Layer 3: flags override env
-	if flagSet["port"] {
-		result.Port = flags.Port
-	}
-	if flagSet["host"] {
-		result.Host = flags.Host
-	}
-	if flagSet["data"] {
-		result.Data = flags.Data
-	}
-	if flagSet["base-url"] {
-		result.BaseURL = flags.BaseURL
-	}
-	if flagSet["cors-origins"] {
-		result.CORSOrigins = flags.CORSOrigins
-	}
-	if flagSet["trust-proxy"] {
-		result.TrustProxy = flags.TrustProxy
-	}
-	if flagSet["tunnel"] {
-		result.Tunnel = flags.Tunnel
-	}
-	if flagSet["log-format"] {
-		result.LogFormat = flags.LogFormat
-	}
-
+	mergeLayer(&result, file, fileSet)
+	mergeLayer(&result, env, envSet)
+	mergeLayer(&result, flags, flagSet)
 	return result
 }

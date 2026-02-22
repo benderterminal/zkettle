@@ -234,4 +234,3 @@ func TestIntegrationCORSHeaders(t *testing.T) {
 		t.Fatal("preflight missing Allow-Methods")
 	}
 }
-
