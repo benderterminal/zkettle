@@ -1,6 +1,6 @@
 # zKettle — Self-Destructing Secret Sharing
 
-zKettle is a zero-knowledge, self-hosted secret sharing tool. Secrets are encrypted client-side with AES-256-GCM, the server stores only ciphertext, and the decryption key lives in the URL fragment — never sent to the server. Secrets auto-delete after a configurable number of views or time limit. zKettle is MCP-native: agents can create, read, revoke, and audit secrets programmatically.
+zKettle is a zero-knowledge, self-hosted secret sharing tool. Secrets are encrypted client-side with AES-256-GCM, the server stores only ciphertext, and the decryption key lives in the URL fragment — never sent to the server. Secrets auto-delete after a configurable number of views or time limit. zKettle is AI-native: agents can create, read, revoke, and audit secrets programmatically.
 
 ## When to Use
 
