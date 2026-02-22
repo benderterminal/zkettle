@@ -214,6 +214,41 @@ func TestMergeNoFile(t *testing.T) {
 	}
 }
 
+func TestLoadEnvLogFormat(t *testing.T) {
+	os.Setenv("ZKETTLE_LOG_FORMAT", "json")
+	defer os.Unsetenv("ZKETTLE_LOG_FORMAT")
+
+	cfg, set := LoadEnv()
+	if !set["log_format"] {
+		t.Fatal("expected log_format to be set")
+	}
+	if cfg.LogFormat != "json" {
+		t.Fatalf("log_format: got %q, want %q", cfg.LogFormat, "json")
+	}
+}
+
+func TestMergeLogFormat(t *testing.T) {
+	defaults := Defaults()
+	file := Config{LogFormat: "json"}
+	env := Config{}
+	envSet := map[string]bool{}
+	flags := Config{}
+	flagSet := map[string]bool{}
+
+	result := Merge(defaults, file, true, env, envSet, flags, flagSet)
+	if result.LogFormat != "json" {
+		t.Fatalf("log_format: got %q, want %q (from file)", result.LogFormat, "json")
+	}
+
+	// Env overrides file
+	env.LogFormat = "text"
+	envSet["log_format"] = true
+	result = Merge(defaults, file, true, env, envSet, flags, flagSet)
+	if result.LogFormat != "text" {
+		t.Fatalf("log_format: got %q, want %q (env overrides file)", result.LogFormat, "text")
+	}
+}
+
 func TestMergeUnknownKeysIgnored(t *testing.T) {
 	tmp := t.TempDir()
 	origDir, _ := os.Getwd()
@@ -226,5 +261,31 @@ func TestMergeUnknownKeysIgnored(t *testing.T) {
 	_, _, err := LoadFile()
 	if err != nil {
 		t.Fatalf("unknown keys should be ignored, got error: %v", err)
+	}
+}
+
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{"valid defaults", Defaults(), false},
+		{"valid json log", Config{Port: 3000, LogFormat: "json"}, false},
+		{"valid text log", Config{Port: 3000, LogFormat: "text"}, false},
+		{"valid empty log", Config{Port: 3000, LogFormat: ""}, false},
+		{"invalid log format", Config{Port: 3000, LogFormat: "xml"}, true},
+		{"negative port", Config{Port: -1}, true},
+		{"port too high", Config{Port: 65536}, true},
+		{"max valid port", Config{Port: 65535}, false},
+		{"zero port", Config{Port: 0}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }

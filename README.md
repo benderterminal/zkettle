@@ -54,9 +54,13 @@ The MCP server starts an HTTP backend on the specified port and communicates wit
 ```
 zkettle serve [options]     Start the HTTP server
   --port 3000               HTTP port
-  --host 0.0.0.0            Listen address
+  --host 127.0.0.1          Listen address (use 0.0.0.0 for all interfaces)
   --data ./data             Data directory for SQLite database
   --base-url ""             Base URL for generated links (default: http://localhost:{port})
+  --cors-origins ""         Comma-separated allowed CORS origins
+  --tunnel                  Expose server via Cloudflare Quick Tunnel
+  --trust-proxy             Trust X-Forwarded-For headers (behind a reverse proxy)
+  --log-format text         Log format: json or text
 
 zkettle create [options] <plaintext>   Encrypt and store a secret
   --views 1                 Max views before auto-delete
@@ -67,11 +71,16 @@ zkettle read <url>          Retrieve and decrypt a secret (quote the URL)
 
 zkettle revoke [options] <id>   Delete a secret
   --server http://localhost:3000   Server URL
+  --token ""                Delete token (returned by create)
 
 zkettle mcp [options]       Start MCP server on stdio with HTTP backend
   --port 3000               HTTP port for API
+  --host 127.0.0.1          Listen address
   --data ./data             Data directory
   --base-url ""             Base URL for generated links
+  --tunnel                  Expose server via Cloudflare Quick Tunnel
+  --trust-proxy             Trust X-Forwarded-For headers (behind a reverse proxy)
+  --log-format text         Log format: json or text
 
 zkettle version             Print version
 ```
@@ -95,7 +104,8 @@ Response (201):
 ```json
 {
   "id": "abc123",
-  "expires_at": "2024-01-02T03:04:05Z"
+  "expires_at": "2024-01-02T03:04:05Z",
+  "delete_token": "def456"
 }
 ```
 
@@ -114,7 +124,7 @@ Returns 404 if expired, already consumed, or nonexistent.
 
 ### DELETE /api/secrets/:id
 
-Delete a secret. Returns 204.
+Delete a secret. Requires `Authorization: Bearer {delete_token}` header. Returns 204.
 
 ### GET /health
 
@@ -129,7 +139,7 @@ Serves the web viewer HTML. The decryption key is in the URL fragment (`#key`) a
 - **Zero-knowledge**: The server stores only AES-256-GCM ciphertext. The decryption key lives in the URL fragment, which browsers never send to the server.
 - **Client-side encryption**: All encryption and decryption happens on the client (CLI or browser Web Crypto API).
 - **Expiring**: Secrets auto-delete after the configured number of views or time limit.
-- **No auth in MVP**: Anyone with the URL can view the secret. Recipient authentication is planned for post-MVP.
+- **Composable auth**: The core server runs with no authentication — anyone with the URL can view a secret. When used as a library, a hosted instance can plug in an `AuthFunc` to enforce recipient gating (secrets restricted to a specific user by email or wallet address).
 
 ## Building
 

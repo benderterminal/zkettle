@@ -2,7 +2,9 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/taw/zkettle/internal/auth"
 	"github.com/taw/zkettle/internal/store"
 )
 
@@ -26,7 +29,7 @@ func newIntegrationServer(t *testing.T) (*httptest.Server, *store.Store) {
 		"index.html":  &fstest.MapFile{Data: []byte("<html>landing</html>")},
 		"create.html": &fstest.MapFile{Data: []byte("<html>create</html>")},
 	}
-	srv := New(Config{}, st, viewerFS)
+	srv := New(context.Background(), Config{}, st, viewerFS)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, st
@@ -197,7 +200,7 @@ func TestIntegrationCORSHeaders(t *testing.T) {
 		"index.html":  &fstest.MapFile{Data: []byte("<html>landing</html>")},
 		"create.html": &fstest.MapFile{Data: []byte("<html>create</html>")},
 	}
-	srv := New(Config{}, st, viewerFS)
+	srv := New(context.Background(), Config{}, st, viewerFS)
 
 	// Wrap with CORS middleware
 	handler := CORSMiddleware([]string{"https://example.com"})(srv.Handler())
@@ -231,5 +234,143 @@ func TestIntegrationCORSHeaders(t *testing.T) {
 	}
 	if got := resp.Header.Get("Access-Control-Allow-Methods"); got == "" {
 		t.Fatal("preflight missing Allow-Methods")
+	}
+}
+
+// --- L12-03: Auth-aware handler tests ---
+
+// TestGetWithRecipientNoAuth verifies that a gated secret returns 403
+// when the server has no AuthFunc (self-hosted mode).
+func TestGetWithRecipientNoAuth(t *testing.T) {
+	ts, st := newIntegrationServer(t)
+
+	// Create a secret with a recipient directly in store
+	testID := "bb000000000000000000000000000002"
+	recipient := "alice@example.com"
+	recipientType := "email"
+	opts := store.CreateOptions{
+		Recipient:     &recipient,
+		RecipientType: &recipientType,
+	}
+	st.Create(testID, []byte("enc"), []byte("123456789012"), 5, time.Now().Add(time.Hour), "tok", opts)
+
+	resp, err := http.Get(ts.URL + "/api/secrets/" + testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("GET gated secret without auth: got %d, want 403", resp.StatusCode)
+	}
+}
+
+// TestGetWithoutRecipientNoAuth verifies ungated secrets work identically.
+func TestGetWithoutRecipientNoAuth(t *testing.T) {
+	ts, st := newIntegrationServer(t)
+
+	testID := "bb000000000000000000000000000003"
+	st.Create(testID, []byte("enc"), []byte("123456789012"), 5, time.Now().Add(time.Hour), "tok")
+
+	resp, err := http.Get(ts.URL + "/api/secrets/" + testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET ungated secret: got %d, want 200", resp.StatusCode)
+	}
+}
+
+// newAuthServer creates a test server with an AuthFunc configured.
+func newAuthServer(t *testing.T, authFunc func(r *http.Request) (*auth.Identity, error)) (*httptest.Server, *store.Store) {
+	t.Helper()
+	st, err := store.New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	viewerFS := fstest.MapFS{
+		"viewer.html": &fstest.MapFile{Data: []byte("<html>viewer</html>")},
+		"index.html":  &fstest.MapFile{Data: []byte("<html>landing</html>")},
+		"create.html": &fstest.MapFile{Data: []byte("<html>create</html>")},
+	}
+	srv := New(context.Background(), Config{AuthFunc: authFunc}, st, viewerFS)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return ts, st
+}
+
+// TestGetWithRecipientAuthSuccess verifies that a gated secret is accessible
+// when AuthFunc returns a valid identity.
+func TestGetWithRecipientAuthSuccess(t *testing.T) {
+	authFunc := func(r *http.Request) (*auth.Identity, error) {
+		return &auth.Identity{ID: "user-1", Email: "alice@example.com", Method: "password"}, nil
+	}
+	ts, st := newAuthServer(t, authFunc)
+
+	testID := "bb000000000000000000000000000004"
+	recipient := "alice@example.com"
+	recipientType := "email"
+	opts := store.CreateOptions{
+		Recipient:     &recipient,
+		RecipientType: &recipientType,
+	}
+	st.Create(testID, []byte("enc"), []byte("123456789012"), 5, time.Now().Add(time.Hour), "tok", opts)
+
+	resp, err := http.Get(ts.URL + "/api/secrets/" + testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET gated secret with valid auth: got %d, want 200", resp.StatusCode)
+	}
+}
+
+// TestGetWithRecipientAuthFailure verifies that a gated secret returns 401
+// when AuthFunc returns an error.
+func TestGetWithRecipientAuthFailure(t *testing.T) {
+	authFunc := func(r *http.Request) (*auth.Identity, error) {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	ts, st := newAuthServer(t, authFunc)
+
+	testID := "bb000000000000000000000000000005"
+	recipient := "alice@example.com"
+	recipientType := "email"
+	opts := store.CreateOptions{
+		Recipient:     &recipient,
+		RecipientType: &recipientType,
+	}
+	st.Create(testID, []byte("enc"), []byte("123456789012"), 5, time.Now().Add(time.Hour), "tok", opts)
+
+	resp, err := http.Get(ts.URL + "/api/secrets/" + testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET gated secret with failed auth: got %d, want 401", resp.StatusCode)
+	}
+}
+
+// TestGetUngatedSecretWithAuthConfigured verifies ungated secrets bypass auth.
+func TestGetUngatedSecretWithAuthConfigured(t *testing.T) {
+	authFunc := func(r *http.Request) (*auth.Identity, error) {
+		return nil, fmt.Errorf("should not be called for ungated secrets")
+	}
+	ts, st := newAuthServer(t, authFunc)
+
+	testID := "bb000000000000000000000000000006"
+	st.Create(testID, []byte("enc"), []byte("123456789012"), 5, time.Now().Add(time.Hour), "tok")
+
+	resp, err := http.Get(ts.URL + "/api/secrets/" + testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET ungated secret with auth configured: got %d, want 200", resp.StatusCode)
 	}
 }

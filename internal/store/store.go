@@ -7,7 +7,10 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,10 +28,13 @@ var ErrExpired = errors.New("secret expired or consumed")
 var ErrUnauthorized = errors.New("unauthorized: invalid delete token")
 
 type SecretMeta struct {
-	ID        string
-	ViewsLeft int
-	ExpiresAt time.Time
-	CreatedAt time.Time
+	ID            string
+	ViewsLeft     int
+	ExpiresAt     time.Time
+	CreatedAt     time.Time
+	CreatorID     *string
+	Recipient     *string
+	RecipientType *string
 }
 
 type Store struct {
@@ -76,11 +82,23 @@ func New(dbPath string) (*Store, error) {
 		return nil, err
 	}
 
-	// Migrate: add delete_token column if missing (pre-existing databases)
-	db.Exec(`ALTER TABLE secrets ADD COLUMN delete_token TEXT NOT NULL DEFAULT ''`)
+	// Migrate: add columns if missing (pre-existing databases).
+	// Only "duplicate column" errors are expected and ignored; other errors are fatal.
+	for _, stmt := range []string{
+		`ALTER TABLE secrets ADD COLUMN delete_token TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE secrets ADD COLUMN creator_id TEXT`,
+		`ALTER TABLE secrets ADD COLUMN recipient TEXT`,
+		`ALTER TABLE secrets ADD COLUMN recipient_type TEXT`,
+	} {
+		if _, err := db.Exec(stmt); err != nil && !isDuplicateColumn(err) {
+			db.Close()
+			return nil, err
+		}
+	}
 
 	// Index for efficient expiry cleanup queries
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_expires ON secrets(expires_at)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_creator ON secrets(creator_id)`)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Store{db: db, ctx: ctx, cancel: cancel}
@@ -144,10 +162,32 @@ func (s *Store) scheduleNextCleanup() {
 	})
 }
 
-func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time, deleteToken string) error {
+// isDuplicateColumn returns true if the error is a SQLite "duplicate column" error,
+// which is expected during migrations when the column already exists.
+func isDuplicateColumn(err error) bool {
+	return strings.Contains(err.Error(), "duplicate column")
+}
+
+// CreateOptions holds optional fields for secret creation.
+// All fields are pointers so nil means "not set" (stored as NULL).
+type CreateOptions struct {
+	CreatorID     *string
+	Recipient     *string
+	RecipientType *string // "email" or "wallet"
+}
+
+// Create stores a new secret. opts accepts at most one CreateOptions;
+// if multiple are passed, only the first is used.
+func (s *Store) Create(id string, encrypted, iv []byte, viewsLeft int, expiresAt time.Time, deleteToken string, opts ...CreateOptions) error {
+	var opt CreateOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
 	_, err := s.db.Exec(
-		`INSERT INTO secrets (id, encrypted, iv, views_left, expires_at, delete_token) VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO secrets (id, encrypted, iv, views_left, expires_at, delete_token, creator_id, recipient, recipient_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, encrypted, iv, viewsLeft, expiresAt.Unix(), hex.EncodeToString(hashToken(deleteToken)),
+		opt.CreatorID, opt.Recipient, opt.RecipientType,
 	)
 	if err != nil {
 		return err
@@ -180,6 +220,27 @@ func (s *Store) Get(id string) (encrypted, iv []byte, err error) {
 	return encrypted, iv, nil
 }
 
+// GetMeta returns metadata about a secret without consuming a view.
+// Used by auth-aware handlers to check recipient before releasing ciphertext.
+func (s *Store) GetMeta(id string) (*SecretMeta, error) {
+	var m SecretMeta
+	var expiresUnix, createdUnix int64
+	err := s.db.QueryRow(
+		`SELECT id, views_left, expires_at, created_at, creator_id, recipient, recipient_type
+		FROM secrets WHERE id = ? AND expires_at > unixepoch() AND views_left > 0`,
+		id,
+	).Scan(&m.ID, &m.ViewsLeft, &expiresUnix, &createdUnix, &m.CreatorID, &m.Recipient, &m.RecipientType)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	m.ExpiresAt = time.Unix(expiresUnix, 0)
+	m.CreatedAt = time.Unix(createdUnix, 0)
+	return &m, nil
+}
+
 func (s *Store) Delete(id string, deleteToken string) error {
 	var storedHex string
 	err := s.db.QueryRow(`SELECT delete_token FROM secrets WHERE id = ?`, id).Scan(&storedHex)
@@ -202,7 +263,7 @@ func (s *Store) Delete(id string, deleteToken string) error {
 
 func (s *Store) List() ([]SecretMeta, error) {
 	rows, err := s.db.Query(
-		`SELECT id, views_left, expires_at, created_at FROM secrets WHERE expires_at > unixepoch()`,
+		`SELECT id, views_left, expires_at, created_at, creator_id, recipient, recipient_type FROM secrets WHERE expires_at > unixepoch()`,
 	)
 	if err != nil {
 		return nil, err
@@ -213,7 +274,7 @@ func (s *Store) List() ([]SecretMeta, error) {
 	for rows.Next() {
 		var m SecretMeta
 		var expiresUnix, createdUnix int64
-		if err := rows.Scan(&m.ID, &m.ViewsLeft, &expiresUnix, &createdUnix); err != nil {
+		if err := rows.Scan(&m.ID, &m.ViewsLeft, &expiresUnix, &createdUnix, &m.CreatorID, &m.Recipient, &m.RecipientType); err != nil {
 			return nil, err
 		}
 		m.ExpiresAt = time.Unix(expiresUnix, 0)
@@ -244,6 +305,32 @@ func (s *Store) Status(id string) error {
 
 func (s *Store) Ping() error {
 	return s.db.Ping()
+}
+
+// DB returns the underlying *sql.DB handle.
+// The hosted repo uses this to run its own migrations and queries.
+// Core schema uses user_version 0-99. Hosted extensions use 100+.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
+// UserVersion returns the current PRAGMA user_version value.
+func (s *Store) UserVersion() (int, error) {
+	var v int
+	err := s.db.QueryRow("PRAGMA user_version").Scan(&v)
+	return v, err
+}
+
+// SetUserVersion sets PRAGMA user_version to the given value.
+func (s *Store) SetUserVersion(v int) error {
+	if v < 0 {
+		return fmt.Errorf("user_version must be non-negative, got %d", v)
+	}
+	if v > math.MaxInt32 {
+		return fmt.Errorf("user_version must fit in 32-bit signed integer, got %d", v)
+	}
+	_, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", v))
+	return err
 }
 
 func (s *Store) Cleanup() (int, error) {

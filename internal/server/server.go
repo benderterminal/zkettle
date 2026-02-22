@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"io/fs"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/taw/zkettle/internal/auth"
 	"github.com/taw/zkettle/internal/baseurl"
 	"github.com/taw/zkettle/internal/id"
 	"github.com/taw/zkettle/internal/store"
@@ -28,6 +30,20 @@ type Config struct {
 	ReadBurst   int
 	WriteRPS    float64
 	WriteBurst  int
+
+	// Extension points for composability.
+	// All are optional; nil values are safe defaults (no auth, no extra routes, no middleware).
+
+	// AuthFunc extracts an identity from a request. nil = no authentication.
+	// Used by handleGet and handleStatus to enforce recipient gating.
+	AuthFunc func(r *http.Request) (*auth.Identity, error)
+
+	// ExtraRoutes registers additional routes on the server mux. nil = no extra routes.
+	ExtraRoutes func(mux *http.ServeMux)
+
+	// Middleware is a chain of additional middleware applied after security headers.
+	// Each function wraps the handler; they are applied in slice order (last = outermost).
+	Middleware []func(http.Handler) http.Handler
 }
 
 // BuildHandler composes the middleware chain around the given handler.
@@ -69,13 +85,13 @@ type Server struct {
 	createLimiter *ipRateLimiter
 }
 
-func New(cfg Config, st *store.Store, webFS fs.FS) *Server {
+func New(ctx context.Context, cfg Config, st *store.Store, webFS fs.FS) *Server {
 	s := &Server{
 		cfg:           cfg,
 		store:         st,
 		webFS:         webFS,
 		mux:           http.NewServeMux(),
-		createLimiter: newIPRateLimiter(context.Background(), 10, 10, 10000),
+		createLimiter: newIPRateLimiter(ctx, 10, 10, 10000),
 	}
 	s.mux.HandleFunc("GET /{$}", s.handleLanding)
 	s.mux.HandleFunc("GET /create", s.handleCreatePage)
@@ -85,11 +101,20 @@ func New(cfg Config, st *store.Store, webFS fs.FS) *Server {
 	s.mux.HandleFunc("DELETE /api/secrets/{id}", s.handleDelete)
 	s.mux.HandleFunc("GET /s/{id}", s.handleViewer)
 	s.mux.HandleFunc("GET /health", s.handleHealth)
+
+	if cfg.ExtraRoutes != nil {
+		cfg.ExtraRoutes(s.mux)
+	}
+
 	return s
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.securityHeaders(s.mux)
+	h := s.securityHeaders(s.mux)
+	for _, mw := range s.cfg.Middleware {
+		h = mw(h)
+	}
+	return h
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
@@ -215,6 +240,26 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid secret ID format")
 		return
 	}
+
+	// Check recipient gating before consuming a view.
+	// Note: there is a small TOCTOU window between GetMeta and Get. A concurrent
+	// request could consume the last view between these calls. The second caller
+	// would get a 404, which is acceptable behavior.
+	meta, err := s.store.GetMeta(secretID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "secret not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to retrieve secret")
+		return
+	}
+
+	r, ok := s.checkRecipientAuth(w, r, meta)
+	if !ok {
+		return
+	}
+
 	encrypted, iv, err := s.store.Get(secretID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -240,8 +285,8 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := ""
-	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-		token = strings.TrimPrefix(auth, "Bearer ")
+	if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 	if token == "" {
 		writeError(w, http.StatusUnauthorized, "Authorization header with Bearer token required")
@@ -281,17 +326,48 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid secret ID format")
 		return
 	}
-	err := s.store.Status(secretID)
+
+	meta, err := s.store.GetMeta(secretID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrExpired) {
+		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "secret not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to check secret status")
 		return
 	}
+
+	if _, ok := s.checkRecipientAuth(w, r, meta); !ok {
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"available"}`))
+}
+
+// checkRecipientAuth enforces recipient gating for a secret.
+// If the secret has a recipient, it verifies auth and stores identity in context.
+// Returns the (possibly updated) request and true if the caller should proceed,
+// or writes an error response and returns false.
+func (s *Server) checkRecipientAuth(w http.ResponseWriter, r *http.Request, meta *store.SecretMeta) (*http.Request, bool) {
+	if meta.Recipient == nil || *meta.Recipient == "" {
+		return r, true
+	}
+	if s.cfg.AuthFunc == nil {
+		// Self-hosted instance with no auth — can't verify recipient
+		writeError(w, http.StatusForbidden, "this secret requires authentication on a hosted instance")
+		return r, false
+	}
+	// Auth is available — authenticate the request and store identity in context.
+	// The hosted server's AuthFunc handles the actual recipient matching.
+	identity, authErr := s.cfg.AuthFunc(r)
+	if authErr != nil {
+		slog.Warn("authentication failed", "secret_id", meta.ID, "error", authErr)
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return r, false
+	}
+	r = r.WithContext(auth.ContextWithIdentity(r.Context(), identity))
+	return r, true
 }
 
 func (s *Server) servePage(w http.ResponseWriter, name string) {

@@ -30,6 +30,7 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	host := f.String("host", "", "HTTP host")
 	tunnelFlag := f.Bool("tunnel", false, "Expose server via Cloudflare Quick Tunnel")
 	trustProxy := f.Bool("trust-proxy", false, "Trust X-Forwarded-For/X-Real-Ip headers (enable when behind a reverse proxy)")
+	logFormat := f.String("log-format", "", "Log format: json or text")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
@@ -56,6 +57,9 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	if flagSet["trust-proxy"] {
 		flagCfg.TrustProxy = *trustProxy
 	}
+	if flagSet["log-format"] {
+		flagCfg.LogFormat = *logFormat
+	}
 
 	defaults := config.Defaults()
 	fileCfg, filePath, err := config.LoadFile()
@@ -64,6 +68,10 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	}
 	envCfg, envSet := config.LoadEnv()
 	resolved := config.Merge(defaults, fileCfg, filePath != "", envCfg, envSet, flagCfg, flagSet)
+
+	if err := resolved.Validate(); err != nil {
+		return err
+	}
 
 	if resolved.Tunnel && resolved.BaseURL != "" {
 		return fmt.Errorf("--tunnel and --base-url are mutually exclusive")
@@ -93,14 +101,20 @@ func RunMCP(args []string, webFS embed.FS, version string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	var logHandler slog.Handler
+	if resolved.LogFormat == "json" {
+		logHandler = slog.NewJSONHandler(os.Stderr, nil)
+	} else {
+		logHandler = slog.NewTextHandler(os.Stderr, nil)
+	}
+	slog.SetDefault(slog.New(logHandler))
 
 	if filePath != "" {
 		slog.Info("loaded config file", "path", filePath)
 	}
 
 	cfg := server.Config{BaseURL: bu, TrustProxy: resolved.TrustProxy}
-	srv := server.New(cfg, st, subFS)
+	srv := server.New(ctx, cfg, st, subFS)
 	handler := server.BuildHandler(ctx, cfg, srv.Handler())
 
 	httpSrv := &http.Server{

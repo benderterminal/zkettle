@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log/slog"
 	"net"
 	"net/http"
@@ -29,6 +31,8 @@ func (sr *statusRecorder) WriteHeader(code int) {
 func RequestLogger(trustProxy bool, proxyDepth int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqID := generateRequestID()
+			w.Header().Set("X-Request-Id", reqID)
 			start := time.Now()
 			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rec, r)
@@ -38,9 +42,17 @@ func RequestLogger(trustProxy bool, proxyDepth int) func(http.Handler) http.Hand
 				"status", rec.status,
 				"duration", time.Since(start).Round(time.Millisecond),
 				"ip", clientIP(r, trustProxy, proxyDepth),
+				"request_id", reqID,
 			)
 		})
 	}
+}
+
+// generateRequestID returns 16 hex characters (8 random bytes) for log correlation.
+func generateRequestID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // ipRateLimiter tracks per-IP rate limiters with automatic cleanup of stale entries.
