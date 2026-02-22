@@ -9,22 +9,100 @@ zKettle is a zero-knowledge, self-hosted secret sharing tool. Secrets are encryp
 - **Temporary access** — grant short-lived access with a low view count and short TTL
 - **Secure dead drops** — leave a secret for someone to pick up once, then it vanishes
 
+## Installation
+
+### Go install (requires Go 1.25+)
+
+```bash
+go install github.com/benderterminal/zkettle@latest
+```
+
+### Binary download
+
+```bash
+curl -fsSL https://github.com/benderterminal/zkettle/releases/latest/download/zkettle-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') -o /usr/local/bin/zkettle && chmod +x /usr/local/bin/zkettle
+```
+
+### From source
+
+```bash
+git clone https://github.com/benderterminal/zkettle.git && cd zkettle && make install
+```
+
 ## MCP Setup
 
-Add to your MCP client configuration:
+**Before configuring, ask the user:** Do you want zKettle to generate **public URLs** (recommended — shareable with anyone on the internet) or **local-only URLs** (only accessible on your machine/network)? Public mode uses a free Cloudflare Quick Tunnel — no account or DNS setup required. It works for both local and remote sharing. Only use local mode if sharing is strictly limited to your local network.
+
+Add to your MCP client configuration (Claude Code, Claude Desktop, or any MCP-compatible agent):
+
+**Public URLs (recommended)** — secrets shareable with anyone via Cloudflare Quick Tunnel:
 
 ```json
 {
   "mcpServers": {
     "zkettle": {
-      "command": "/path/to/zkettle",
+      "command": "zkettle",
+      "args": ["mcp", "--port", "3001", "--tunnel"]
+    }
+  }
+}
+```
+
+**Local only** — use only if sharing is strictly limited to your local network:
+
+```json
+{
+  "mcpServers": {
+    "zkettle": {
+      "command": "zkettle",
       "args": ["mcp", "--port", "3001"]
     }
   }
 }
 ```
 
-The MCP server starts an HTTP backend on the specified port and communicates with the agent over stdio.
+The MCP server starts an HTTP backend on the specified port and communicates with the agent over stdio. All encryption and decryption happens locally — the server never sees plaintext.
+
+## CLI Usage
+
+```bash
+# Start the server locally
+zkettle serve --port 3000
+
+# Start with a public URL via Cloudflare Quick Tunnel (no config needed)
+zkettle serve --tunnel
+
+# Create a secret (reads from stdin)
+echo "my secret password" | zkettle create --server http://localhost:3000 --views 1 --minutes 60
+
+# Read a secret
+zkettle read "http://localhost:3000/s/abc123#key"
+
+# Revoke a secret
+zkettle revoke --server http://localhost:3000 --token <delete-token> <id>
+
+# Generate a random secret
+zkettle generate --length 32 --charset symbols
+
+# List active secrets (requires admin token)
+zkettle list --server http://localhost:3000 --admin-token <token>
+```
+
+### Cloudflare Quick Tunnel
+
+The `--tunnel` flag creates an instant public URL (e.g. `https://random-name.trycloudflare.com`) with no account, no config, and no DNS setup. Generated secret URLs will automatically use the tunnel URL. Works with both `serve` and `mcp` commands:
+
+```bash
+# Server with public URL
+zkettle serve --tunnel
+
+# MCP with public URL (shareable links use the tunnel domain)
+zkettle mcp --port 3001 --tunnel
+```
+
+## Web UI
+
+Start the server and open `http://localhost:3000` in a browser. Use `--tunnel` for a public URL shareable with anyone — without it, the web UI is only accessible on localhost. The web UI supports creating secrets, revealing secrets via shareable URLs, and revoking secrets. All encryption happens client-side using the Web Crypto API.
 
 ## Tool Reference
 
