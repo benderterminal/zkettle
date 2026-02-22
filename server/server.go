@@ -7,13 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"io/fs"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/taw/zkettle/auth"
 	"github.com/taw/zkettle/baseurl"
 	"github.com/taw/zkettle/id"
 	"github.com/taw/zkettle/store"
@@ -32,11 +30,7 @@ type Config struct {
 	WriteBurst  int
 
 	// Extension points for composability.
-	// All are optional; nil values are safe defaults (no auth, no extra routes, no middleware).
-
-	// AuthFunc extracts an identity from a request. nil = no authentication.
-	// Used by handleGet and handleStatus to enforce recipient gating.
-	AuthFunc func(r *http.Request) (*auth.Identity, error)
+	// All are optional; nil values are safe defaults (no extra routes, no middleware).
 
 	// ExtraRoutes registers additional routes on the server mux. nil = no extra routes.
 	ExtraRoutes func(mux *http.ServeMux)
@@ -241,25 +235,6 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check recipient gating before consuming a view.
-	// Note: there is a small TOCTOU window between GetMeta and Get. A concurrent
-	// request could consume the last view between these calls. The second caller
-	// would get a 404, which is acceptable behavior.
-	meta, err := s.store.GetMeta(secretID)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "secret not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to retrieve secret")
-		return
-	}
-
-	r, ok := s.checkRecipientAuth(w, r, meta)
-	if !ok {
-		return
-	}
-
 	encrypted, iv, err := s.store.Get(secretID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -327,9 +302,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := s.store.GetMeta(secretID)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+	if err := s.store.Status(secretID); err != nil {
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrExpired) {
 			writeError(w, http.StatusNotFound, "secret not found")
 			return
 		}
@@ -337,37 +311,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := s.checkRecipientAuth(w, r, meta); !ok {
-		return
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"available"}`))
-}
-
-// checkRecipientAuth enforces recipient gating for a secret.
-// If the secret has a recipient, it verifies auth and stores identity in context.
-// Returns the (possibly updated) request and true if the caller should proceed,
-// or writes an error response and returns false.
-func (s *Server) checkRecipientAuth(w http.ResponseWriter, r *http.Request, meta *store.SecretMeta) (*http.Request, bool) {
-	if meta.Recipient == nil || *meta.Recipient == "" {
-		return r, true
-	}
-	if s.cfg.AuthFunc == nil {
-		// Self-hosted instance with no auth — can't verify recipient
-		writeError(w, http.StatusForbidden, "this secret requires authentication on a hosted instance")
-		return r, false
-	}
-	// Auth is available — authenticate the request and store identity in context.
-	// The hosted server's AuthFunc handles the actual recipient matching.
-	identity, authErr := s.cfg.AuthFunc(r)
-	if authErr != nil {
-		slog.Warn("authentication failed", "secret_id", meta.ID, "error", authErr)
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return r, false
-	}
-	r = r.WithContext(auth.ContextWithIdentity(r.Context(), identity))
-	return r, true
 }
 
 func (s *Server) servePage(w http.ResponseWriter, name string) {

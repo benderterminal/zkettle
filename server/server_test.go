@@ -513,7 +513,7 @@ func TestCreateEndpointRateLimit(t *testing.T) {
 // --- Composability extension point tests (L12-01) ---
 
 func TestNewWithZeroValueConfig(t *testing.T) {
-	// Zero-value Config has nil AuthFunc, nil ExtraRoutes, nil Middleware.
+	// Zero-value Config has nil ExtraRoutes and nil Middleware.
 	// Server should construct and behave identically to before the refactor.
 	srv, st := newTestServer(t)
 

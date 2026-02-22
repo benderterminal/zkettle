@@ -139,7 +139,7 @@ Serves the web viewer HTML. The decryption key is in the URL fragment (`#key`) a
 - **Zero-knowledge**: The server stores only AES-256-GCM ciphertext. The decryption key lives in the URL fragment, which browsers never send to the server.
 - **Client-side encryption**: All encryption and decryption happens on the client (CLI or browser Web Crypto API).
 - **Expiring**: Secrets auto-delete after the configured number of views or time limit.
-- **Composable auth**: The core server runs with no authentication — anyone with the URL can view a secret. When used as a library, a hosted instance can plug in an `AuthFunc` to enforce recipient gating (secrets restricted to a specific user by email or wallet address).
+- **Composable library**: The server is designed for embedding — use `ExtraRoutes` and `Middleware` to extend the server with custom routes and middleware for any deployment.
 
 ## Building
 
