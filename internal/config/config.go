@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -33,9 +34,10 @@ func Defaults() Config {
 
 // LoadFile attempts to load a TOML config file from standard locations.
 // Search order: ./zkettle.toml, $HOME/.config/zkettle/zkettle.toml
-// Returns the loaded config and the path that was loaded (empty if none found).
+// Returns the loaded config, the path that was loaded (empty if none found),
+// a set of field names explicitly defined in the file, and any error.
 // Returns an error only if a file exists but is malformed.
-func LoadFile() (Config, string, error) {
+func LoadFile() (Config, string, map[string]bool, error) {
 	paths := []string{"zkettle.toml"}
 	if home, err := os.UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, ".config", "zkettle", "zkettle.toml"))
@@ -47,13 +49,20 @@ func LoadFile() (Config, string, error) {
 			continue // file not found, try next
 		}
 		var cfg Config
-		if err := toml.Unmarshal(data, &cfg); err != nil {
-			return Config{}, p, fmt.Errorf("parsing config file %s: %w", p, err)
+		md, err := toml.Decode(string(data), &cfg)
+		if err != nil {
+			return Config{}, p, nil, fmt.Errorf("parsing config file %s: %w", p, err)
 		}
-		return cfg, p, nil
+		fileSet := make(map[string]bool)
+		for _, key := range []string{"port", "host", "data", "base_url", "cors_origins", "trust_proxy", "tunnel", "log_format"} {
+			if md.IsDefined(key) {
+				fileSet[key] = true
+			}
+		}
+		return cfg, p, fileSet, nil
 	}
 
-	return Config{}, "", nil
+	return Config{}, "", nil, nil
 }
 
 // LoadEnv reads ZKETTLE_* environment variables and returns a Config
@@ -113,6 +122,11 @@ func (c Config) Validate() error {
 	if c.Port < 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port %d: must be 0-65535", c.Port)
 	}
+	if c.Host != "" && c.Host != "localhost" {
+		if net.ParseIP(c.Host) == nil {
+			return fmt.Errorf("invalid host %q: must be a valid IP address or \"localhost\"", c.Host)
+		}
+	}
 	switch c.LogFormat {
 	case "", "json", "text":
 		// valid
@@ -124,36 +138,35 @@ func (c Config) Validate() error {
 
 // Merge combines defaults, file config, env config, and flag overrides.
 // Precedence: flags > env > file > defaults.
+// fileSet and envSet indicate which fields were explicitly set in the file/env layers.
 // flagSet indicates which flags were explicitly set by the user (not just defaults).
-func Merge(defaults, file Config, fileFound bool, env Config, envSet map[string]bool, flags Config, flagSet map[string]bool) Config {
+func Merge(defaults, file Config, fileSet map[string]bool, env Config, envSet map[string]bool, flags Config, flagSet map[string]bool) Config {
 	result := defaults
 
-	// Layer 1: file overrides defaults (if file was found)
-	if fileFound {
-		if file.Port != 0 {
-			result.Port = file.Port
-		}
-		if file.Host != "" {
-			result.Host = file.Host
-		}
-		if file.Data != "" {
-			result.Data = file.Data
-		}
-		if file.BaseURL != "" {
-			result.BaseURL = file.BaseURL
-		}
-		if len(file.CORSOrigins) > 0 {
-			result.CORSOrigins = file.CORSOrigins
-		}
-		if file.TrustProxy {
-			result.TrustProxy = file.TrustProxy
-		}
-		if file.Tunnel {
-			result.Tunnel = file.Tunnel
-		}
-		if file.LogFormat != "" {
-			result.LogFormat = file.LogFormat
-		}
+	// Layer 1: file overrides defaults (only fields explicitly set in file)
+	if fileSet["port"] {
+		result.Port = file.Port
+	}
+	if fileSet["host"] {
+		result.Host = file.Host
+	}
+	if fileSet["data"] {
+		result.Data = file.Data
+	}
+	if fileSet["base_url"] {
+		result.BaseURL = file.BaseURL
+	}
+	if fileSet["cors_origins"] {
+		result.CORSOrigins = file.CORSOrigins
+	}
+	if fileSet["trust_proxy"] {
+		result.TrustProxy = file.TrustProxy
+	}
+	if fileSet["tunnel"] {
+		result.Tunnel = file.Tunnel
+	}
+	if fileSet["log_format"] {
+		result.LogFormat = file.LogFormat
 	}
 
 	// Layer 2: env overrides file

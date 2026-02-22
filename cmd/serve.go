@@ -71,12 +71,12 @@ func RunServe(args []string, webFS embed.FS) error {
 	}
 
 	defaults := config.Defaults()
-	fileCfg, filePath, err := config.LoadFile()
+	fileCfg, filePath, fileSet, err := config.LoadFile()
 	if err != nil {
 		return err
 	}
 	envCfg, envSet := config.LoadEnv()
-	resolved := config.Merge(defaults, fileCfg, filePath != "", envCfg, envSet, flagCfg, flagSet)
+	resolved := config.Merge(defaults, fileCfg, fileSet, envCfg, envSet, flagCfg, flagSet)
 
 	if err := resolved.Validate(); err != nil {
 		return err
