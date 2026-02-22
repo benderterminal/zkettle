@@ -17,6 +17,8 @@ zKettle is a zero-knowledge, self-hosted secret sharing tool. Secrets are encryp
 go install github.com/benderterminal/zkettle@latest
 ```
 
+This installs to `$GOPATH/bin` (typically `~/go/bin`). Make sure it's in your PATH: `export PATH="$HOME/go/bin:$PATH"`
+
 ### Binary download
 
 ```bash
