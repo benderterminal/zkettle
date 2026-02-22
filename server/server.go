@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taw/zkettle/baseurl"
-	"github.com/taw/zkettle/id"
-	"github.com/taw/zkettle/store"
+	"github.com/benderterminal/zkettle/baseurl"
+	"github.com/benderterminal/zkettle/id"
+	"github.com/benderterminal/zkettle/store"
 )
 
 // maxBodySize is the HTTP request body limit (1MB). This must be larger than

@@ -240,8 +240,12 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{
 .text-muted{color:#888!important}
 .text-success{color:#9DED9D!important}
 .text-dimmed{color:#888!important}
-.recent-row{display:flex;align-items:center;gap:.75rem;padding:.4rem 0;border-bottom:1px solid #222;font-size:.75rem}
-.recent-info{flex:1;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recent-row{display:flex;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid #222;font-size:.75rem}
+.recent-info{flex:1;color:#888;overflow:hidden;text-overflow:ellipsis}
+.recent-id{white-space:nowrap}
+.recent-id a{color:#9DED9D;text-decoration:none}
+.recent-id a:hover{text-decoration:underline}
+.recent-meta{color:#555;font-size:.65rem;margin-top:.15rem}
 .recent-btn-sm{font-size:.65rem;padding:.3rem .6rem}
 .recent-section-card{margin-top:1rem}
 .recent-heading{font-size:.8rem;color:#777;margin-bottom:.75rem}
@@ -359,7 +363,7 @@ noscript{
     <button class="btn-revoke" id="revoke-btn">Revoke Secret</button>
     <span class="revoke-status" id="revoke-status"></span>
   </div>
-  <button class="create-another" id="btn-another">Create Another</button>
+  <button class="create-another" id="btn-another">Encrypt Another Secret</button>
 </div>
 
 <div class="card hidden recent-section-card" id="recent-section">
@@ -489,9 +493,16 @@ function formatBytes(b){
   return (b/1024).toFixed(1)+' KB';
 }
 
-function saveToken(id,deleteToken){
+function saveToken(id,deleteToken,extra){
   var tokens=loadTokens();
-  tokens.push({id:id,deleteToken:deleteToken,createdAt:new Date().toISOString()});
+  var entry={id:id,deleteToken:deleteToken,createdAt:new Date().toISOString()};
+  if(extra){
+    if(extra.views) entry.views=extra.views;
+    if(extra.minutes) entry.minutes=extra.minutes;
+    if(extra.expiresAt) entry.expiresAt=extra.expiresAt;
+    if(extra.url) entry.url=extra.url;
+  }
+  tokens.push(entry);
   try{localStorage.setItem(STORAGE_KEY,JSON.stringify(tokens));}catch(e){}
 }
 
@@ -514,9 +525,36 @@ function renderRecent(){
   tokens.forEach(function(t){
     var row=document.createElement('div');
     row.className='recent-row';
-    var info=document.createElement('span');
+    row.dataset.secretId=t.id;
+    var info=document.createElement('div');
     info.className='recent-info';
-    info.textContent=t.id.substring(0,12)+'… — '+new Date(t.createdAt).toLocaleString();
+
+    var idLine=document.createElement('div');
+    idLine.className='recent-id';
+    var idText=t.id.substring(0,12)+'…';
+    if(t.url){
+      var link=document.createElement('a');
+      link.href=t.url;
+      link.textContent=idText;
+      link.title='Open secret viewer';
+      idLine.appendChild(link);
+    }else{
+      idLine.textContent=idText;
+    }
+    info.appendChild(idLine);
+
+    var meta=document.createElement('div');
+    meta.className='recent-meta';
+    var parts=[];
+    if(t.views) parts.push(t.views+(t.views===1?' view':' views'));
+    if(t.expiresAt){
+      parts.push('expires '+new Date(t.expiresAt).toLocaleString());
+    }else if(t.minutes){
+      parts.push(t.minutes+'m expiry');
+    }
+    meta.textContent=parts.join(' · ');
+    info.appendChild(meta);
+
     var btn=document.createElement('button');
     btn.className='btn-revoke recent-btn-sm';
     btn.textContent='Revoke';
@@ -524,7 +562,38 @@ function renderRecent(){
     row.appendChild(info);
     row.appendChild(btn);
     list.appendChild(row);
+    // Check if secret is still available
+    checkRecentStatus(t.id,btn,info);
   });
+}
+
+function markExpired(btn,info){
+  btn.textContent='Expired';
+  btn.disabled=true;
+  btn.style.opacity='0.4';
+  btn.style.cursor='default';
+  info.style.opacity='0.5';
+  // Replace link with plain text
+  var link=info.querySelector('.recent-id a');
+  if(link){
+    var span=document.createElement('span');
+    span.textContent=link.textContent;
+    span.style.textDecoration='line-through';
+    link.parentNode.replaceChild(span,link);
+  }
+  // Update meta to show "expired"
+  var meta=info.querySelector('.recent-meta');
+  if(meta){
+    meta.textContent=meta.textContent.replace(/expires\s+[^·]+/,'expired');
+  }
+}
+
+function checkRecentStatus(id,btn,info){
+  fetch('/api/secrets/'+id+'/status').then(function(resp){
+    if(resp.status===404){
+      markExpired(btn,info);
+    }
+  }).catch(function(){});
 }
 
 async function revokeRecent(entry,btn){
@@ -640,11 +709,12 @@ async function createSecret(){
     // 6. Store secret ID and delete token for revoke
     currentSecretID=data.id;
     currentDeleteToken=data.delete_token;
-    saveToken(data.id,data.delete_token);
 
     // 7. Construct the shareable URL with key in fragment
     var keyB64=b64urlEncode(rawKey);
     var shareURL=window.location.origin+'/s/'+data.id+'#'+keyB64;
+
+    saveToken(data.id,data.delete_token,{views:views,minutes:minutes,expiresAt:data.expires_at,url:shareURL});
 
     // Show result
     document.getElementById('page-title').textContent='share this link';
@@ -810,6 +880,26 @@ document.getElementById('btn-another').addEventListener('click',resetForm);
 initForm();
 setupByteCounter();
 renderRecent();
+
+// Refresh recent statuses every 30s so expired secrets update without page reload
+setInterval(function(){
+  var section=document.getElementById('recent-section');
+  if(!section.classList.contains('hidden')){
+    var tokens=loadTokens();
+    tokens.forEach(function(t){
+      fetch('/api/secrets/'+t.id+'/status').then(function(resp){
+        if(resp.status===404){
+          var row=document.querySelector('.recent-row[data-secret-id="'+t.id+'"]');
+          if(row){
+            var info=row.querySelector('.recent-info');
+            var btn=row.querySelector('.btn-revoke');
+            if(btn&&btn.textContent!=='Expired') markExpired(btn,info);
+          }
+        }
+      }).catch(function(){});
+    });
+  }
+},30000);
 })();
 </script>
 </body>

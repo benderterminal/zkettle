@@ -2,28 +2,45 @@
 
 Self-hosted zero-knowledge expiring secrets. Encrypt locally, store ciphertext on the server, share a URL with the decryption key in the fragment. The server never sees the plaintext or the key.
 
+## Installation
+
+### Go install (requires Go 1.25+)
+
+```bash
+go install github.com/benderterminal/zkettle@latest
+```
+
+### Binary download
+
+```bash
+curl -fsSL https://github.com/benderterminal/zkettle/releases/latest/download/zkettle-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') -o /usr/local/bin/zkettle && chmod +x /usr/local/bin/zkettle
+```
+
+### From source
+
+```bash
+git clone https://github.com/benderterminal/zkettle.git && cd zkettle && make install
+```
+
 ## Quick Start
 
 ```bash
-# Download the binary for your platform (or build from source)
-make build
-
 # Start the server with a Cloudflare tunnel (instant public URL)
-./dist/zkettle serve --tunnel
+zkettle serve --tunnel
 
 # Or start locally
-./dist/zkettle serve --port 3000
+zkettle serve --port 3000
 
 # Create a secret (in another terminal)
-echo "my secret password" | ./dist/zkettle create --views 1 --minutes 60
+echo "my secret password" | zkettle create --views 1 --minutes 60
 # → http://localhost:3000/s/abc123#key
 
 # Read a secret
-./dist/zkettle read "http://localhost:3000/s/abc123#key"
+zkettle read "http://localhost:3000/s/abc123#key"
 # → my secret password
 
 # Revoke a secret
-./dist/zkettle revoke --server http://localhost:3000 --token <delete-token> <id>
+zkettle revoke --server http://localhost:3000 --token <delete-token> <id>
 ```
 
 Open the URL in a browser to reveal the secret via the web viewer.
@@ -360,6 +377,7 @@ Serves the web viewer HTML. The decryption key is in the URL fragment (`#key`) a
 ```bash
 make build          # Build for current platform
 make build-all      # Build for darwin/linux/windows amd64 + darwin/linux arm64
+make install        # Build and install to $GOPATH/bin or /usr/local/bin
 make test           # Run all tests
 make clean          # Remove build artifacts
 ```

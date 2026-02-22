@@ -16,7 +16,16 @@ build-all:
 test:
 	go test ./...
 
+install: build
+	@if [ -n "$(GOPATH)" ] && [ -d "$(GOPATH)/bin" ]; then \
+		cp dist/zkettle $(GOPATH)/bin/zkettle; \
+	elif [ -d "$(HOME)/go/bin" ]; then \
+		cp dist/zkettle $(HOME)/go/bin/zkettle; \
+	else \
+		cp dist/zkettle /usr/local/bin/zkettle; \
+	fi
+
 clean:
 	rm -rf dist/
 
-.PHONY: build build-all test clean
+.PHONY: build build-all test install clean

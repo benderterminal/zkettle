@@ -1,4 +1,4 @@
-module github.com/taw/zkettle
+module github.com/benderterminal/zkettle
 
 go 1.25.0
 

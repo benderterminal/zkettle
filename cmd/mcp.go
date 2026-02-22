@@ -15,12 +15,12 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/taw/zkettle/baseurl"
-	"github.com/taw/zkettle/internal/config"
-	"github.com/taw/zkettle/internal/mcptools"
-	"github.com/taw/zkettle/server"
-	"github.com/taw/zkettle/store"
-	"github.com/taw/zkettle/internal/tunnel"
+	"github.com/benderterminal/zkettle/baseurl"
+	"github.com/benderterminal/zkettle/internal/config"
+	"github.com/benderterminal/zkettle/internal/mcptools"
+	"github.com/benderterminal/zkettle/server"
+	"github.com/benderterminal/zkettle/store"
+	"github.com/benderterminal/zkettle/internal/tunnel"
 )
 
 func RunMCP(args []string, webFS embed.FS, version string) error {

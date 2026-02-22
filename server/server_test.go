@@ -11,7 +11,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/taw/zkettle/store"
+	"github.com/benderterminal/zkettle/store"
 )
 
 // Valid 32-char hex IDs for tests

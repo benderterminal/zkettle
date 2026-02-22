@@ -14,11 +14,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/taw/zkettle/baseurl"
-	"github.com/taw/zkettle/internal/config"
-	"github.com/taw/zkettle/server"
-	"github.com/taw/zkettle/store"
-	"github.com/taw/zkettle/internal/tunnel"
+	"github.com/benderterminal/zkettle/baseurl"
+	"github.com/benderterminal/zkettle/internal/config"
+	"github.com/benderterminal/zkettle/server"
+	"github.com/benderterminal/zkettle/store"
+	"github.com/benderterminal/zkettle/internal/tunnel"
 )
 
 func RunServe(args []string, webFS embed.FS, version string) error {

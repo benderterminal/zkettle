@@ -36,7 +36,7 @@ Encrypt and store a secret, returning an expiring URL.
 |-----------|------|----------|---------|-------------|
 | `content` | string | yes | — | Plaintext secret to encrypt (max 500KB) |
 | `views` | integer | no | `1` | Max views before auto-delete (1–100) |
-| `hours` | integer | no | `24` | Hours until expiry (1–720) |
+| `minutes` | integer | no | `1440` | Minutes until expiry (1–43200, i.e. 30 days max) |
 
 **Returns:** `url` (with decryption key in fragment) and `delete_token` for later revocation.
 
@@ -67,19 +67,33 @@ List all active secrets (metadata only — no content or keys). Local MCP access
 
 **Returns:** JSON array of secret metadata (ID, creation time, expiry, remaining views).
 
+### `generate_secret`
+
+Generate a cryptographically random secret. Optionally encrypt and store it in one step.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `length` | integer | no | `32` | Length in characters (1–4096) |
+| `charset` | string | no | `"alphanumeric"` | Character set: alphanumeric, symbols, hex, base64url |
+| `create` | boolean | no | `false` | If true, encrypt and store the generated secret |
+| `views` | integer | no | `1` | When create=true, max views before auto-delete (1–100) |
+| `minutes` | integer | no | `1440` | When create=true, minutes until expiry (1–43200) |
+
+**Returns:** Raw generated text, or `url` + `delete_token` when `create=true`.
+
 ## Common Agent Patterns
 
 ### Credential rotation
 ```
-1. create_secret(content="new-db-password", views=2, hours=4)
+1. create_secret(content="new-db-password", views=2, minutes=240)
 2. Share URL with recipient
 3. revoke_secret(id="old-secret-id", delete_token="old-token")
 ```
 
 ### Temporary access grant
 ```
-1. create_secret(content="temp-token", views=1, hours=1)
-2. Send one-time link — expires after a single view or 1 hour
+1. create_secret(content="temp-token", views=1, minutes=60)
+2. Send one-time link — expires after a single view or 60 minutes
 ```
 
 ### Read a shared secret
@@ -105,8 +119,8 @@ List all active secrets (metadata only — no content or keys). Local MCP access
 
 - **500KB** max plaintext size per secret
 - **100 views** max per secret
-- **720 hours** (30 days) max TTL
+- **43200 minutes** (30 days) max TTL
 - **1 view** default if `views` is omitted
-- **24 hours** default if `hours` is omitted
+- **1440 minutes** (24 hours) default if `minutes` is omitted
 - **URL fragments**: The `#key` portion of the URL contains the decryption key. Some tools strip URL fragments — ensure the full URL is passed to `read_secret`
 - **Local-only list**: `list_secrets` is only available via the local MCP stdio transport, not over the network API
