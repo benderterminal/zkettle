@@ -197,31 +197,6 @@ button.primary:disabled{
     color:#9DED9D;
 }
 
-.clipboard-status.cleared{
-    color:#888;
-}
-
-/* Keep checkbox */
-.keep-wrap{
-    display:flex;
-    align-items:center;
-    gap:.4rem;
-    margin-top:.75rem;
-    justify-content:center;
-}
-
-.keep-wrap label{
-    font-size:.75rem;
-    color:#666;
-    cursor:pointer;
-    user-select:none;
-}
-
-.keep-wrap input[type="checkbox"]{
-    accent-color:#9DED9D;
-    cursor:pointer;
-}
-
 /* State visibility */
 .state{display:none}
 .state.active{display:block}
@@ -256,7 +231,11 @@ button.primary:disabled{
         <!-- Available state -->
         <div class="state" id="state-available">
             <p class="warning">Secret will evaporate when revealed.</p>
-            <button class="primary" id="reveal-btn">Reveal Secret</button>
+            <div class="actions">
+                <button class="primary" id="reveal-btn">Reveal Secret</button>
+                <button id="copy-only-btn">Copy Without Revealing</button>
+            </div>
+            <div class="clipboard-status" id="copy-only-status"></div>
         </div>
 
         <!-- Revealed state -->
@@ -266,10 +245,6 @@ button.primary:disabled{
                 <button id="copy-btn">Copy</button>
             </div>
             <div class="clipboard-status" id="clipboard-status"></div>
-            <div class="keep-wrap">
-                <input type="checkbox" id="keep-clipboard">
-                <label for="keep-clipboard">Keep in clipboard</label>
-            </div>
         </div>
 
         <!-- Error state -->
@@ -296,8 +271,8 @@ button.primary:disabled{
 (function(){
     'use strict';
 
-    var clipboardTimer = null;
-    var clipboardCountdown = null;
+    // Cache decrypted plaintext so copy-then-reveal doesn't consume a second view.
+    var cachedPlaintext = null;
 
     function b64urlDecode(s) {
         s = s.replace(/-/g, '+').replace(/_/g, '/');
@@ -321,23 +296,49 @@ button.primary:disabled{
         showState('error');
     }
 
+    function getSecretIdAndHash() {
+        var path = window.location.pathname;
+        var match = path.match(/\/s\/([^\/]+)/);
+        var id = match ? match[1] : null;
+        var hash = window.location.hash.slice(1);
+        return { id: id, hash: hash };
+    }
+
+    async function fetchAndDecrypt() {
+        var info = getSecretIdAndHash();
+        if (!info.id) throw new Error('Invalid secret URL.');
+        if (!info.hash) throw new Error('No decryption key found in URL.');
+
+        var resp = await fetch('/api/secrets/' + encodeURIComponent(info.id));
+        if (!resp.ok) {
+            if (resp.status === 404 || resp.status === 410) {
+                showState('gone');
+                return null;
+            }
+            throw new Error('Failed to retrieve secret (HTTP ' + resp.status + ').');
+        }
+
+        var data = await resp.json();
+        var encrypted = b64urlDecode(data.encrypted);
+        var iv = b64urlDecode(data.iv);
+        var key = b64urlDecode(info.hash);
+
+        var cryptoKey = await crypto.subtle.importKey(
+            'raw', key, { name: 'AES-GCM' }, false, ['decrypt']
+        );
+        var decrypted = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: iv }, cryptoKey, encrypted
+        );
+        return new TextDecoder().decode(decrypted);
+    }
+
     async function checkAvailability() {
         try {
-            var path = window.location.pathname;
-            var match = path.match(/\/s\/([^\/]+)/);
-            var id = match ? match[1] : null;
-            if (!id) {
-                showError('Invalid secret URL.');
-                return;
-            }
+            var info = getSecretIdAndHash();
+            if (!info.id) { showError('Invalid secret URL.'); return; }
+            if (!info.hash) { showError('No decryption key found in URL.'); return; }
 
-            var hash = window.location.hash.slice(1);
-            if (!hash) {
-                showError('No decryption key found in URL.');
-                return;
-            }
-
-            var statusResp = await fetch('/api/secrets/' + encodeURIComponent(id) + '/status');
+            var statusResp = await fetch('/api/secrets/' + encodeURIComponent(info.id) + '/status');
             if (statusResp.status === 404 || statusResp.status === 410) {
                 showState('gone');
                 return;
@@ -357,49 +358,17 @@ button.primary:disabled{
         var btn = document.getElementById('reveal-btn');
         btn.disabled = true;
         btn.textContent = 'Decrypting...';
-
-        // Brief spinner overlay
-        showState('loading');
-        document.querySelector('#state-loading .spinner-text').textContent = 'decrypting';
+        document.getElementById('copy-only-btn').disabled = true;
 
         try {
-            var hash = window.location.hash.slice(1);
-            if (!hash) {
-                showError('No decryption key found in URL.');
-                return;
+            var plaintext = cachedPlaintext;
+            if (!plaintext) {
+                showState('loading');
+                document.querySelector('#state-loading .spinner-text').textContent = 'decrypting';
+                plaintext = await fetchAndDecrypt();
+                if (plaintext === null) return; // gone state already shown
+                cachedPlaintext = plaintext;
             }
-
-            var path = window.location.pathname;
-            var match = path.match(/\/s\/([^\/]+)/);
-            var id = match ? match[1] : null;
-            if (!id) {
-                showError('Invalid secret URL.');
-                return;
-            }
-
-            var resp = await fetch('/api/secrets/' + encodeURIComponent(id));
-            if (!resp.ok) {
-                if (resp.status === 404 || resp.status === 410) {
-                    showState('gone');
-                    return;
-                }
-                showError('Failed to retrieve secret (HTTP ' + resp.status + ').');
-                return;
-            }
-
-            var data = await resp.json();
-            var encrypted = b64urlDecode(data.encrypted);
-            var iv = b64urlDecode(data.iv);
-            var key = b64urlDecode(hash);
-
-            var cryptoKey = await crypto.subtle.importKey(
-                'raw', key, { name: 'AES-GCM' }, false, ['decrypt']
-            );
-            var decrypted = await crypto.subtle.decrypt(
-                { name: 'AES-GCM', iv: iv }, cryptoKey, encrypted
-            );
-            var plaintext = new TextDecoder().decode(decrypted);
-
             document.getElementById('plaintext').textContent = plaintext;
             showState('revealed');
         } catch (e) {
@@ -407,85 +376,63 @@ button.primary:disabled{
         }
     }
 
-    async function copySecret() {
+    async function copyOnly() {
+        var btn = document.getElementById('copy-only-btn');
+        var statusEl = document.getElementById('copy-only-status');
+        btn.disabled = true;
+        btn.textContent = 'Copying...';
+        document.getElementById('reveal-btn').disabled = true;
+
+        try {
+            var plaintext = cachedPlaintext;
+            if (!plaintext) {
+                plaintext = await fetchAndDecrypt();
+                if (plaintext === null) return; // gone state already shown
+                cachedPlaintext = plaintext;
+            }
+
+            await navigator.clipboard.writeText(plaintext);
+            statusEl.textContent = 'Copied to clipboard.';
+            statusEl.className = 'clipboard-status active';
+            btn.textContent = 'Copied';
+        } catch (e) {
+            if (e.message && e.message.indexOf('clipboard') !== -1) {
+                statusEl.textContent = 'Clipboard access denied.';
+                statusEl.className = 'clipboard-status';
+            } else {
+                showError('Decryption failed: ' + e.message);
+                return;
+            }
+        }
+
+        // Re-enable reveal button so user can still reveal after copying
+        document.getElementById('reveal-btn').disabled = false;
+        document.getElementById('reveal-btn').textContent = 'Reveal Secret';
+    }
+
+    async function copyRevealed() {
         var text = document.getElementById('plaintext').textContent;
         var statusEl = document.getElementById('clipboard-status');
 
         try {
             await navigator.clipboard.writeText(text);
+            statusEl.textContent = 'Copied to clipboard.';
+            statusEl.className = 'clipboard-status active';
         } catch (e) {
             statusEl.textContent = 'Clipboard access denied.';
             statusEl.className = 'clipboard-status';
-            return;
         }
-
-        // Clear any existing timer
-        if (clipboardTimer) {
-            clearTimeout(clipboardTimer);
-            clipboardTimer = null;
-        }
-        if (clipboardCountdown) {
-            clearInterval(clipboardCountdown);
-            clipboardCountdown = null;
-        }
-
-        var secondsLeft = 60;
-        statusEl.textContent = 'Clipboard clears in ' + secondsLeft + 's';
-        statusEl.className = 'clipboard-status active';
-
-        clipboardCountdown = setInterval(function() {
-            secondsLeft--;
-
-            // Check if user toggled "keep" during countdown
-            if (document.getElementById('keep-clipboard').checked) {
-                clearInterval(clipboardCountdown);
-                clipboardCountdown = null;
-                if (clipboardTimer) {
-                    clearTimeout(clipboardTimer);
-                    clipboardTimer = null;
-                }
-                statusEl.textContent = 'Clipboard will not be cleared.';
-                statusEl.className = 'clipboard-status';
-                return;
-            }
-
-            if (secondsLeft > 0) {
-                statusEl.textContent = 'Clipboard clears in ' + secondsLeft + 's';
-            }
-        }, 1000);
-
-        clipboardTimer = setTimeout(async function() {
-            if (clipboardCountdown) {
-                clearInterval(clipboardCountdown);
-                clipboardCountdown = null;
-            }
-
-            if (document.getElementById('keep-clipboard').checked) {
-                statusEl.textContent = 'Clipboard will not be cleared.';
-                statusEl.className = 'clipboard-status';
-                return;
-            }
-
-            try {
-                await navigator.clipboard.writeText('');
-                statusEl.textContent = 'Clipboard cleared.';
-                statusEl.className = 'clipboard-status cleared';
-            } catch (e) {
-                statusEl.textContent = 'Could not clear clipboard.';
-                statusEl.className = 'clipboard-status';
-            }
-        }, 60000);
     }
 
-    // Wire up event listeners (no inline handlers — CSP nonce requires this)
+    // Wire up event listeners
     document.getElementById('reveal-btn').addEventListener('click', revealSecret);
-    document.getElementById('copy-btn').addEventListener('click', copySecret);
+    document.getElementById('copy-only-btn').addEventListener('click', copyOnly);
+    document.getElementById('copy-btn').addEventListener('click', copyRevealed);
 
     // Run pre-check on load
     checkAvailability();
 
     // Poll status every 15s while waiting on "available" state.
-    // If the secret expires (time or views consumed elsewhere), transition to "gone".
     var pollPath = window.location.pathname;
     var pollMatch = pollPath.match(/\/s\/([^\/]+)/);
     var pollId = pollMatch ? pollMatch[1] : null;

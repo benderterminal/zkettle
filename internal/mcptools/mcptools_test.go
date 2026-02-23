@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -350,5 +352,127 @@ func TestGenerateSecretRandomness(t *testing.T) {
 	t2 := r2.Content[0].(*mcp.TextContent).Text
 	if t1 == t2 {
 		t.Fatal("two generate calls produced identical output")
+	}
+}
+
+func TestReadSecretToFile(t *testing.T) {
+	mcpSrv, _, _ := setupTestEnv(t)
+
+	createResult := callTool(t, mcpSrv, "create_secret", map[string]any{
+		"content": "file-output-secret",
+		"views":   1,
+	})
+	secretURL, _ := parseCreateResult(t, createResult)
+
+	outPath := filepath.Join(t.TempDir(), "secret.txt")
+	readResult := callTool(t, mcpSrv, "read_secret", map[string]any{
+		"url":  secretURL,
+		"file": outPath,
+	})
+
+	text := readResult.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, outPath) {
+		t.Fatalf("expected file path in result, got: %s", text)
+	}
+	if !strings.Contains(text, "0600") {
+		t.Fatalf("expected 0600 in result, got: %s", text)
+	}
+
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("reading output file: %v", err)
+	}
+	if string(data) != "file-output-secret" {
+		t.Fatalf("expected 'file-output-secret', got: %s", string(data))
+	}
+
+	info, err := os.Stat(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("expected 0600 permissions, got: %o", info.Mode().Perm())
+	}
+}
+
+func TestReadSecretToClipboard(t *testing.T) {
+	mcpSrv, _, _ := setupTestEnv(t)
+
+	createResult := callTool(t, mcpSrv, "create_secret", map[string]any{
+		"content": "clipboard-secret",
+		"views":   1,
+	})
+	secretURL, _ := parseCreateResult(t, createResult)
+
+	result, err := callToolMayFail(t, mcpSrv, "read_secret", map[string]any{
+		"url":       secretURL,
+		"clipboard": true,
+	})
+
+	// On systems without a clipboard utility, this will error — that's expected.
+	if err != nil || (result != nil && result.IsError) {
+		t.Skip("clipboard not available in test environment")
+	}
+
+	text := result.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "clipboard") {
+		t.Fatalf("expected clipboard confirmation, got: %s", text)
+	}
+}
+
+func TestCreateSecretFromFile(t *testing.T) {
+	mcpSrv, _, baseURL := setupTestEnv(t)
+
+	// Write a secret to a file
+	secretFile := filepath.Join(t.TempDir(), "input-secret.txt")
+	if err := os.WriteFile(secretFile, []byte("secret-from-file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, mcpSrv, "create_secret", map[string]any{
+		"file": secretFile,
+	})
+
+	url, deleteToken := parseCreateResult(t, result)
+	if !strings.HasPrefix(url, baseURL+"/s/") {
+		t.Fatalf("expected URL starting with %s/s/, got: %s", baseURL, url)
+	}
+	if deleteToken == "" {
+		t.Fatal("missing delete_token")
+	}
+
+	// Read the secret back to verify content
+	readResult := callTool(t, mcpSrv, "read_secret", map[string]any{"url": url})
+	text := readResult.Content[0].(*mcp.TextContent).Text
+	if text != "secret-from-file" {
+		t.Fatalf("expected 'secret-from-file', got: %s", text)
+	}
+}
+
+func TestCreateSecretContentAndFileMutuallyExclusive(t *testing.T) {
+	mcpSrv, _, _ := setupTestEnv(t)
+
+	secretFile := filepath.Join(t.TempDir(), "conflict.txt")
+	if err := os.WriteFile(secretFile, []byte("test"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := callToolMayFail(t, mcpSrv, "create_secret", map[string]any{
+		"content": "inline",
+		"file":    secretFile,
+	})
+	if !isToolError(result, err) {
+		t.Fatal("expected error when both content and file are provided")
+	}
+}
+
+func TestCreateSecretFromNonexistentFile(t *testing.T) {
+	mcpSrv, _, _ := setupTestEnv(t)
+
+	result, err := callToolMayFail(t, mcpSrv, "create_secret", map[string]any{
+		"file": "/nonexistent/path/secret.txt",
+	})
+	if !isToolError(result, err) {
+		t.Fatal("expected error for nonexistent file")
 	}
 }

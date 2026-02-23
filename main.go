@@ -62,7 +62,7 @@ func printUsage() {
 Commands:
   serve     Start the HTTP server (use --tunnel for public Cloudflare URL)
   create    Encrypt and store a secret (reads from stdin)
-  read      Retrieve and decrypt a secret
+  read      Retrieve and decrypt a secret (-c for clipboard, -o for file)
   revoke    Delete a secret
   generate  Generate a cryptographically random secret
   list      List active secrets (requires admin token)

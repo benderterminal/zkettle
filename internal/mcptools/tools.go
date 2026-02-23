@@ -9,11 +9,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/benderterminal/zkettle/baseurl"
+	"github.com/benderterminal/zkettle/internal/clipboard"
 	"github.com/benderterminal/zkettle/internal/crypto"
 	"github.com/benderterminal/zkettle/internal/generate"
 	"github.com/benderterminal/zkettle/internal/limits"
@@ -101,13 +103,16 @@ func newSSRFSafeClient(timeout time.Duration, allowPrivate bool) *http.Client {
 }
 
 type CreateSecretInput struct {
-	Content string `json:"content" jsonschema:"The plaintext secret to encrypt and share. The server never sees this value -- encryption happens before storage. Maximum 500KB. Examples: API keys, passwords, certificates, tokens, connection strings."`
+	Content string `json:"content,omitempty" jsonschema:"The plaintext secret to encrypt and share. WARNING: This content will be visible in the AI agent's conversation context. For maximum security, use the file parameter instead, or use generate_secret with create=true. Maximum 500KB."`
+	File    string `json:"file,omitempty" jsonschema:"Read secret content from this file path instead of the content parameter. Keeps plaintext out of the agent conversation context. The file is read once and not modified."`
 	Views   int    `json:"views,omitempty" jsonschema:"Maximum number of views before the secret is permanently deleted. Default 1 (single-use). Range: 1-100. Use 1 for one-time passwords, higher values for shared team credentials."`
 	Minutes int    `json:"minutes,omitempty" jsonschema:"Minutes until the secret expires and is permanently deleted regardless of remaining views. Default 1440 (24 hours). Range: 1-43200 (30 days). Use short TTLs for sensitive credentials."`
 }
 
 type ReadSecretInput struct {
-	URL string `json:"url" jsonschema:"The full zKettle secret URL including the decryption key in the fragment (#). Format: https://host/s/{id}#{key}. WARNING: Reading consumes one view -- if this is the last view the secret is permanently destroyed."`
+	URL       string `json:"url" jsonschema:"The full zKettle secret URL including the decryption key in the fragment (#). Format: https://host/s/{id}#{key}. WARNING: Reading consumes one view -- if this is the last view the secret is permanently destroyed."`
+	File      string `json:"file,omitempty" jsonschema:"Write decrypted secret to this file path (0600 permissions) instead of returning it in the response. Keeps plaintext out of the agent conversation context. Subagents running as the same OS user can read the file."`
+	Clipboard bool   `json:"clipboard,omitempty" jsonschema:"Copy decrypted secret to system clipboard instead of returning it in the response. The user can then paste it where needed. No auto-clear."`
 }
 
 type RevokeSecretInput struct {
@@ -161,12 +166,30 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "create_secret",
-		Description: "Encrypt and store a secret that self-destructs after being viewed. Use this to share passwords, API keys, tokens, certificates, or other sensitive data via a one-time URL. The secret is encrypted client-side before storage — the server never sees the plaintext.",
+		Description: "Encrypt and store a secret that self-destructs after being viewed. Use this to share passwords, API keys, tokens, certificates, or other sensitive data via a one-time URL. The secret is encrypted client-side before storage — the server never sees the plaintext. WARNING: When using the content parameter, the secret is visible in the AI agent's conversation context. For maximum security, use the file parameter to read from a file, or use generate_secret with create=true.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateSecretInput) (*mcp.CallToolResult, any, error) {
-		if args.Content == "" {
-			return nil, nil, fmt.Errorf("content is required")
+		// Validate: exactly one of content or file must be provided.
+		hasContent := args.Content != ""
+		hasFile := args.File != ""
+		if hasContent && hasFile {
+			return nil, nil, fmt.Errorf("provide either content or file, not both")
 		}
-		if len(args.Content) > maxContentSize {
+
+		var plaintext string
+		if hasFile {
+			data, err := os.ReadFile(args.File)
+			if err != nil {
+				return nil, nil, fmt.Errorf("reading file: %w", err)
+			}
+			plaintext = string(data)
+		} else {
+			plaintext = args.Content
+		}
+
+		if plaintext == "" {
+			return nil, nil, fmt.Errorf("content is required (via content or file parameter)")
+		}
+		if len(plaintext) > maxContentSize {
 			return nil, nil, fmt.Errorf("content exceeds %dKB limit", maxContentSize/1024)
 		}
 
@@ -185,7 +208,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 			return nil, nil, fmt.Errorf("minutes must be %d-%d (%d days)", limits.MinMinutes, limits.MaxMinutes, limits.MaxMinutes/1440)
 		}
 
-		ciphertext, iv, key, err := crypto.Encrypt([]byte(args.Content))
+		ciphertext, iv, key, err := crypto.Encrypt([]byte(plaintext))
 		if err != nil {
 			return nil, nil, fmt.Errorf("encrypting: %w", err)
 		}
@@ -207,7 +230,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "read_secret",
-		Description: "Retrieve and decrypt a secret from a zKettle URL. WARNING: This consumes one view — if the secret has only 1 view remaining, it will be permanently deleted after this call. The URL must include the decryption key in the fragment (#).",
+		Description: "Retrieve and decrypt a secret from a zKettle URL. WARNING: This consumes one view — if the secret has only 1 view remaining, it will be permanently deleted after this call. The URL must include the decryption key in the fragment (#). Use the file or clipboard parameters to keep the decrypted secret out of the agent conversation context.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ReadSecretInput) (*mcp.CallToolResult, any, error) {
 		u, err := validateURLScheme(args.URL)
 		if err != nil {
@@ -284,6 +307,30 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 		if err != nil {
 			return nil, nil, fmt.Errorf("decrypting: %w", err)
 		}
+		defer crypto.Zero(plaintext)
+		defer crypto.Zero(key)
+
+		// Output: file > clipboard > plaintext in result
+		if args.File != "" {
+			if err := os.WriteFile(args.File, plaintext, 0600); err != nil {
+				return nil, nil, fmt.Errorf("writing to file: %w", err)
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Secret written to %s (0600 permissions)", args.File)}},
+			}, nil, nil
+		}
+
+		if args.Clipboard {
+			if !clipboard.Available() {
+				return nil, nil, fmt.Errorf("no clipboard utility found (install pbcopy, xclip, or xsel)")
+			}
+			if err := clipboard.Write(string(plaintext)); err != nil {
+				return nil, nil, fmt.Errorf("clipboard write failed: %w", err)
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "Secret copied to clipboard."}},
+			}, nil, nil
+		}
 
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: string(plaintext)}},
@@ -327,7 +374,7 @@ func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, o
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "generate_secret",
-		Description: "Generate a cryptographically random secret (password, token, API key, or hex key). Optionally encrypt and store it as a self-destructing secret in one step. Uses crypto/rand — no network calls for generation.",
+		Description: "Generate a cryptographically random secret (password, token, API key, or hex key). Optionally encrypt and store it as a self-destructing secret in one step. Uses crypto/rand — no network calls for generation. Recommended: use create=true to generate and encrypt in one step — the generated plaintext never appears in the response.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GenerateSecretInput) (*mcp.CallToolResult, any, error) {
 		length := args.Length
 		if length == 0 {

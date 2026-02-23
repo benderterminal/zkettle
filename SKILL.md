@@ -133,21 +133,26 @@ Encrypt and store a secret, returning an expiring URL.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `content` | string | yes | — | Plaintext secret to encrypt (max 500KB) |
+| `content` | string | no | — | Plaintext secret to encrypt (max 500KB). WARNING: visible in agent conversation context. Use `file` instead for maximum security. |
+| `file` | string | no | — | Read secret content from this file path instead of `content`. Keeps plaintext out of agent context. |
 | `views` | integer | no | `1` | Max views before auto-delete (1–100) |
 | `minutes` | integer | no | `1440` | Minutes until expiry (1–43200, i.e. 30 days max) |
+
+Provide exactly one of `content` or `file`.
 
 **Returns:** `url` (with decryption key in fragment) and `delete_token` for later revocation.
 
 ### `read_secret`
 
-Retrieve and decrypt a secret from a zKettle URL. Consumes one view.
+Retrieve and decrypt a secret from a zKettle URL. Consumes one view. Use the `file` or `clipboard` parameters to keep the decrypted secret out of the agent conversation context.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `url` | string | yes | Full zKettle URL including the `#key` fragment |
+| `file` | string | no | Write decrypted secret to this file path (0600 permissions) instead of returning it |
+| `clipboard` | boolean | no | Copy to system clipboard instead of returning it |
 
-**Returns:** Decrypted plaintext.
+**Returns:** Decrypted plaintext (default), or confirmation message when `file` or `clipboard` is used.
 
 ### `revoke_secret`
 
@@ -179,6 +184,23 @@ Generate a cryptographically random secret. Optionally encrypt and store it in o
 | `minutes` | integer | no | `1440` | When create=true, minutes until expiry (1–43200) |
 
 **Returns:** Raw generated text, or `url` + `delete_token` when `create=true`.
+
+## Recommended Secure Patterns
+
+When using zKettle via MCP, plaintext secrets can appear in the agent conversation
+context (tool inputs/outputs). Use these patterns to minimize exposure:
+
+### Reading secrets without exposing plaintext
+- `read_secret(url="...", file="/tmp/secret.txt")` — writes to file, returns confirmation only
+- `read_secret(url="...", clipboard=true)` — copies to user's clipboard, returns confirmation only
+- Subagents can read the file at the path without the secret entering conversation context
+
+### Creating secrets without exposing plaintext
+- `create_secret(file="/path/to/secret.txt")` — reads content from file, plaintext never in tool call
+- `generate_secret(create=true)` — generates + encrypts in one step, plaintext never in response
+
+### Web UI
+- Use the **Copy Without Revealing** button on the viewer page to retrieve a secret without it appearing on screen or in the DOM
 
 ## Common Agent Patterns
 

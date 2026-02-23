@@ -237,7 +237,9 @@ zkettle create [options]    Encrypt and store a secret (reads from stdin)
   --json                    Output JSON to stdout
   --quiet, -q               Suppress stderr output
 
-zkettle read <url>          Retrieve and decrypt a secret (quote the URL)
+zkettle read [options] <url>   Retrieve and decrypt a secret (quote the URL)
+  --clipboard, -c             Copy to clipboard instead of printing to stdout
+  --file, -o <path>           Write to file (0600 permissions) instead of stdout
 
 zkettle revoke [options] <id>   Delete a secret
   --server http://localhost:3000   Server URL
@@ -390,6 +392,7 @@ Serves the web viewer HTML. The decryption key is in the URL fragment (`#key`) a
 - **Client-side encryption**: All encryption and decryption happens locally — in the browser (Web Crypto API), CLI, or MCP server process. The zKettle HTTP server never sees plaintext.
 - **Expiring**: Secrets auto-delete after the configured number of views or time limit.
 - **Composable library**: When importing zKettle as a Go library, use `ExtraRoutes` and `Middleware` to extend the server with custom routes and middleware for any deployment.
+- **CLI/MCP plaintext exposure**: When reading secrets via CLI (`zkettle read`) or MCP (`read_secret`), the decrypted plaintext appears in terminal output or the MCP tool result (which enters the AI agent's conversation context). To keep secrets out of terminal scrollback and agent logs, use `--clipboard` / `--file` (CLI) or the `clipboard` / `file` parameters (MCP). When creating secrets via MCP, use the `file` parameter to read content from a file, or `generate_secret` with `create=true` to generate and encrypt without exposing plaintext.
 
 ## Building
 
