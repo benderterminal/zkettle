@@ -271,7 +271,6 @@ button.primary:disabled{
 (function(){
     'use strict';
 
-    // Cache decrypted plaintext so copy-then-reveal doesn't consume a second view.
     var cachedPlaintext = null;
 
     function b64urlDecode(s) {
@@ -370,6 +369,7 @@ button.primary:disabled{
                 cachedPlaintext = plaintext;
             }
             document.getElementById('plaintext').textContent = plaintext;
+            cachedPlaintext = null;
             showState('revealed');
         } catch (e) {
             showError('Decryption failed: ' + e.message);
@@ -384,14 +384,25 @@ button.primary:disabled{
         document.getElementById('reveal-btn').disabled = true;
 
         try {
+            if (!window.isSecureContext) {
+                statusEl.textContent = 'Clipboard requires HTTPS or localhost.';
+                statusEl.className = 'clipboard-status';
+                btn.textContent = 'Copy Without Revealing';
+                btn.disabled = false;
+                document.getElementById('reveal-btn').disabled = false;
+                document.getElementById('reveal-btn').textContent = 'Reveal Secret';
+                return;
+            }
+
             var plaintext = cachedPlaintext;
             if (!plaintext) {
                 plaintext = await fetchAndDecrypt();
-                if (plaintext === null) return; // gone state already shown
+                if (plaintext === null) return;
                 cachedPlaintext = plaintext;
             }
 
             await navigator.clipboard.writeText(plaintext);
+            cachedPlaintext = null;
             statusEl.textContent = 'Copied to clipboard.';
             statusEl.className = 'clipboard-status active';
             btn.textContent = 'Copied';
@@ -405,7 +416,6 @@ button.primary:disabled{
             }
         }
 
-        // Re-enable reveal button so user can still reveal after copying
         document.getElementById('reveal-btn').disabled = false;
         document.getElementById('reveal-btn').textContent = 'Reveal Secret';
     }
@@ -424,18 +434,14 @@ button.primary:disabled{
         }
     }
 
-    // Wire up event listeners
     document.getElementById('reveal-btn').addEventListener('click', revealSecret);
     document.getElementById('copy-only-btn').addEventListener('click', copyOnly);
     document.getElementById('copy-btn').addEventListener('click', copyRevealed);
+    window.addEventListener('beforeunload', function(){ cachedPlaintext = null; });
 
-    // Run pre-check on load
     checkAvailability();
 
-    // Poll status every 15s while waiting on "available" state.
-    var pollPath = window.location.pathname;
-    var pollMatch = pollPath.match(/\/s\/([^\/]+)/);
-    var pollId = pollMatch ? pollMatch[1] : null;
+    var pollId = getSecretIdAndHash().id;
     var statusPoll = setInterval(function(){
         var avail = document.getElementById('state-available');
         if (!avail.classList.contains('active')) {

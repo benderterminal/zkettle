@@ -222,11 +222,10 @@ func TestRevokeSecretDeletes(t *testing.T) {
 }
 
 func TestReadSecretMissingKeyFragment(t *testing.T) {
-	mcpSrv, _, baseURL := setupTestEnv(t)
+	mcpSrv, _, _ := setupTestEnv(t)
 	createResult := callTool(t, mcpSrv, "create_secret", map[string]any{"content": "test"})
 	secretURL, _ := parseCreateResult(t, createResult)
 	noKey := strings.SplitN(secretURL, "#", 2)[0]
-	_ = baseURL
 	result, err := callToolMayFail(t, mcpSrv, "read_secret", map[string]any{"url": noKey})
 	if !isToolError(result, err) {
 		t.Fatal("expected error for URL missing key fragment")
@@ -234,11 +233,10 @@ func TestReadSecretMissingKeyFragment(t *testing.T) {
 }
 
 func TestReadSecretInvalidKey(t *testing.T) {
-	mcpSrv, _, baseURL := setupTestEnv(t)
+	mcpSrv, _, _ := setupTestEnv(t)
 	createResult := callTool(t, mcpSrv, "create_secret", map[string]any{"content": "test"})
 	secretURL, _ := parseCreateResult(t, createResult)
 	badURL := strings.SplitN(secretURL, "#", 2)[0] + "#notbase64!!!"
-	_ = baseURL
 	result, err := callToolMayFail(t, mcpSrv, "read_secret", map[string]any{"url": badURL})
 	if !isToolError(result, err) {
 		t.Fatal("expected error for invalid key in URL")
@@ -474,5 +472,53 @@ func TestCreateSecretFromNonexistentFile(t *testing.T) {
 	})
 	if !isToolError(result, err) {
 		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestReadSecretFileAndClipboardMutuallyExclusive(t *testing.T) {
+	mcpSrv, _, _ := setupTestEnv(t)
+
+	createResult := callTool(t, mcpSrv, "create_secret", map[string]any{
+		"content": "exclusive-test",
+		"views":   2,
+	})
+	secretURL, _ := parseCreateResult(t, createResult)
+
+	result, err := callToolMayFail(t, mcpSrv, "read_secret", map[string]any{
+		"url":       secretURL,
+		"file":      "/tmp/out.txt",
+		"clipboard": true,
+	})
+	if !isToolError(result, err) {
+		t.Fatal("expected error when both file and clipboard are provided")
+	}
+}
+
+func TestCreateSecretPathTraversal(t *testing.T) {
+	mcpSrv, _, _ := setupTestEnv(t)
+
+	result, err := callToolMayFail(t, mcpSrv, "create_secret", map[string]any{
+		"file": "../../../etc/passwd",
+	})
+	if !isToolError(result, err) {
+		t.Fatal("expected error for path traversal in file")
+	}
+}
+
+func TestReadSecretPathTraversal(t *testing.T) {
+	mcpSrv, _, _ := setupTestEnv(t)
+
+	createResult := callTool(t, mcpSrv, "create_secret", map[string]any{
+		"content": "path-traversal-test",
+		"views":   1,
+	})
+	secretURL, _ := parseCreateResult(t, createResult)
+
+	result, err := callToolMayFail(t, mcpSrv, "read_secret", map[string]any{
+		"url":  secretURL,
+		"file": "../../../tmp/evil.txt",
+	})
+	if !isToolError(result, err) {
+		t.Fatal("expected error for path traversal in output file")
 	}
 }

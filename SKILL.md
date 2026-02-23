@@ -123,6 +123,7 @@ Features:
 - **Generate random secrets** (password, token, or hex key presets) directly in the form
 - **Reveal secrets** via shareable URLs — the viewer auto-detects if a secret has expired or been consumed
 - **Recent secrets panel** tracks created secrets with view counts, expiry timestamps, and revoke buttons
+- **Copy Without Revealing** copies a secret to clipboard without rendering it in the page
 - **Status polling** automatically updates the viewer and recent panel when secrets expire
 
 ## Tool Reference
@@ -150,7 +151,7 @@ Retrieve and decrypt a secret from a zKettle URL. Consumes one view. Use the `fi
 |-----------|------|----------|-------------|
 | `url` | string | yes | Full zKettle URL including the `#key` fragment |
 | `file` | string | no | Write decrypted secret to this file path (0600 permissions) instead of returning it |
-| `clipboard` | boolean | no | Copy to system clipboard instead of returning it |
+| `clipboard` | boolean | no | Copy to system clipboard instead of returning it. No auto-clear. Mutually exclusive with `file`. |
 
 **Returns:** Decrypted plaintext (default), or confirmation message when `file` or `clipboard` is used.
 
@@ -200,9 +201,11 @@ context (tool inputs/outputs). Use these patterns to minimize exposure:
 - `generate_secret(create=true)` — generates + encrypts in one step, plaintext never in response
 
 ### Web UI
-- Use the **Copy Without Revealing** button on the viewer page to retrieve a secret without it appearing on screen or in the DOM
+- Use the **Copy Without Revealing** button on the viewer page to copy a secret to clipboard without rendering it in the page
 
 ## Common Agent Patterns
+
+> For maximum security, use `file` instead of `content` when creating secrets — see [Recommended Secure Patterns](#recommended-secure-patterns) above.
 
 ### Credential rotation
 ```

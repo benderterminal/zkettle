@@ -35,7 +35,6 @@ func RunRead(args []string) error {
 		return fmt.Errorf("parsing URL: %w", err)
 	}
 
-	// Extract ID from path /s/{id}
 	parts := strings.SplitN(u.Path, "/s/", 2)
 	if len(parts) != 2 || parts[1] == "" {
 		return fmt.Errorf("invalid secret URL: expected /s/{id} in path")
@@ -45,7 +44,6 @@ func RunRead(args []string) error {
 		return fmt.Errorf("invalid secret ID format")
 	}
 
-	// Extract key from fragment
 	keyStr := u.Fragment
 	if keyStr == "" {
 		return fmt.Errorf("no decryption key found in URL fragment")
@@ -55,7 +53,6 @@ func RunRead(args []string) error {
 		return fmt.Errorf("decoding key: %w", err)
 	}
 
-	// Build API URL
 	apiURL := fmt.Sprintf("%s://%s/api/secrets/%s", u.Scheme, u.Host, secretID)
 	resp, err := httpClient.Get(apiURL)
 	if err != nil {
@@ -95,12 +92,12 @@ func RunRead(args []string) error {
 	defer crypto.Zero(plaintext)
 	defer crypto.Zero(key)
 
-	// Output: clipboard > file > stdout
+	if *clipFlag && *fileFlag != "" {
+		return fmt.Errorf("--clipboard and --file are mutually exclusive")
+	}
+
 	if *clipFlag {
-		if !clipboard.Available() {
-			return fmt.Errorf("no clipboard utility found (install pbcopy, xclip, or xsel)")
-		}
-		if err := clipboard.Write(string(plaintext)); err != nil {
+		if err := clipboard.Write(plaintext); err != nil {
 			return err
 		}
 		fmt.Fprintln(os.Stderr, "Secret copied to clipboard.")

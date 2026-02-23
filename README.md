@@ -47,7 +47,7 @@ echo "my secret password" | zkettle create --views 1 --minutes 60
 
 # Read a secret
 zkettle read "http://localhost:3000/s/abc123#key"
-# → my secret password
+# → my secret password (use -c for clipboard, -o <file> for file output)
 
 # Revoke a secret
 zkettle revoke --server http://localhost:3000 --token <delete-token> <id>
@@ -206,11 +206,11 @@ Available tools:
 
 | Tool | Description |
 |------|-------------|
-| `create_secret` | Encrypt and store a secret, returns an expiring URL |
-| `read_secret` | Retrieve and decrypt a secret from a zKettle URL |
+| `create_secret` | Encrypt and store a secret (`content` or `file` input), returns an expiring URL |
+| `read_secret` | Retrieve and decrypt a secret (`file` or `clipboard` output to avoid context exposure) |
 | `list_secrets` | List active secrets (metadata only) |
 | `revoke_secret` | Delete a secret by ID |
-| `generate_secret` | Generate a random secret, optionally store it |
+| `generate_secret` | Generate a random secret, optionally store it (`create=true`) |
 
 ## CLI Reference
 
@@ -392,7 +392,7 @@ Serves the web viewer HTML. The decryption key is in the URL fragment (`#key`) a
 - **Client-side encryption**: All encryption and decryption happens locally — in the browser (Web Crypto API), CLI, or MCP server process. The zKettle HTTP server never sees plaintext.
 - **Expiring**: Secrets auto-delete after the configured number of views or time limit.
 - **Composable library**: When importing zKettle as a Go library, use `ExtraRoutes` and `Middleware` to extend the server with custom routes and middleware for any deployment.
-- **CLI/MCP plaintext exposure**: When reading secrets via CLI (`zkettle read`) or MCP (`read_secret`), the decrypted plaintext appears in terminal output or the MCP tool result (which enters the AI agent's conversation context). To keep secrets out of terminal scrollback and agent logs, use `--clipboard` / `--file` (CLI) or the `clipboard` / `file` parameters (MCP). When creating secrets via MCP, use the `file` parameter to read content from a file, or `generate_secret` with `create=true` to generate and encrypt without exposing plaintext.
+- **CLI/MCP plaintext exposure**: When reading secrets via CLI (`zkettle read`) or MCP (`read_secret`), the decrypted plaintext appears in terminal output or the MCP tool result (which enters the AI agent's conversation context). To keep secrets out of terminal scrollback and agent logs, use `--clipboard` / `--file` (CLI) or the `clipboard` / `file` parameters (MCP). When creating secrets via MCP, use the `file` parameter to read content from a file, or `generate_secret` with `create=true` to generate and encrypt without exposing plaintext. In the web viewer, use the "Copy Without Revealing" button to copy a secret to clipboard without rendering it in the page.
 
 ## Building
 

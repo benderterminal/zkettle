@@ -9,6 +9,9 @@ var boolFlags = map[string]bool{
 	"--quiet":       true,
 	"--tunnel":      true,
 	"--trust-proxy": true,
+	"--clipboard":   true,
+	"-c":            true,
+	"--metrics":     true,
 }
 
 // reorderFlags moves flag-like arguments (starting with "-") before

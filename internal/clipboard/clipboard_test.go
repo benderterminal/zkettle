@@ -40,7 +40,7 @@ func TestWriteRoundTrip(t *testing.T) {
 	}
 	// Write a known value and verify no error.
 	// We don't read back to avoid depending on pbpaste/xclip -o.
-	if err := Write("zkettle-clipboard-test"); err != nil {
+	if err := Write([]byte("zkettle-clipboard-test")); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 }

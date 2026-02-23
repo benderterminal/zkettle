@@ -1,14 +1,12 @@
 package clipboard
 
 import (
+	"bytes"
 	"fmt"
 	"os/exec"
 	"runtime"
-	"strings"
 )
 
-// command returns the clipboard write command for the current platform.
-// Returns empty strings if no clipboard utility is available.
 func command() (name string, args []string) {
 	switch runtime.GOOS {
 	case "darwin":
@@ -26,21 +24,19 @@ func command() (name string, args []string) {
 	return "", nil
 }
 
-// Available reports whether a clipboard write command exists on this system.
 func Available() bool {
 	name, _ := command()
 	return name != ""
 }
 
-// Write copies text to the system clipboard.
-func Write(text string) error {
+func Write(data []byte) error {
 	name, args := command()
 	if name == "" {
 		return fmt.Errorf("no clipboard utility found (install pbcopy, xclip, or xsel)")
 	}
 
 	cmd := exec.Command(name, args...)
-	cmd.Stdin = strings.NewReader(text)
+	cmd.Stdin = bytes.NewReader(data)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("clipboard write failed: %w", err)
 	}
