@@ -1,3 +1,5 @@
+version: "2"
+
 linters:
   enable:
     - govet
@@ -11,5 +13,5 @@ linters:
     staticcheck:
       checks:
         - "all"
-        - "-QF*"  # disable quickfix suggestions
-        - "-S1021" # disable merge-var-declaration suggestion
+        - "-QF*"
+        - "-S1021"
