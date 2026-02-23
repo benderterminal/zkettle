@@ -1,6 +1,32 @@
 # zKettle — Self-Destructing Secret Sharing
 
-zKettle is a zero-knowledge, self-hosted secret sharing tool. Secrets are encrypted client-side with AES-256-GCM, the server stores only ciphertext, and the decryption key lives in the URL fragment — never sent to the server. Secrets auto-delete after a configurable number of views or time limit. zKettle is AI-native: agents can create, read, revoke, and audit secrets programmatically.
+zKettle is a zero-knowledge, self-hosted secret sharing tool for humans and AI agents. Secrets are encrypted client-side with AES-256-GCM, the server stores only ciphertext, and the decryption key stays in the URL fragment (never sent to the server). Secrets automatically expire by view count and/or time.
+
+## Marketplace Blurb (Copy/Paste)
+
+**Short description**
+
+Zero-knowledge secret sharing for AI workflows and teams. Encrypt client-side, share one-time links, auto-delete by views or TTL, and revoke instantly.
+
+**Long description**
+
+zKettle is a self-hosted, AI-native secret sharing service with end-to-end client-side encryption (AES-256-GCM). The server stores ciphertext only, while the decryption key remains in the URL fragment. Teams and agents can create, read, revoke, and audit expiring secrets from CLI, Web UI, or MCP tools. Built as a single Go binary with embedded web assets.
+
+**Suggested tags**
+
+`security`, `secrets`, `zero-knowledge`, `encryption`, `mcp`, `devops`, `credential-sharing`
+
+## Who This Is For (and Not For)
+
+**Great fit for:**
+- teams sharing credentials, tokens, and short-lived access links
+- AI/agent workflows that need safe secret handoff and revocation
+- self-hosters who want one binary and minimal operational overhead
+
+**Not ideal for:**
+- long-term secret storage (use a dedicated secrets manager)
+- enterprise KMS/HSM policy-heavy environments requiring centralized key control
+- workflows that cannot tolerate URL-fragment key handling
 
 ## When to Use
 
@@ -238,6 +264,25 @@ context (tool inputs/outputs). Use these patterns to minimize exposure:
 - **Zero-knowledge**: The server stores only AES-256-GCM ciphertext. The decryption key is in the URL fragment, which is never sent to the server.
 - **Client-side encryption**: All encryption/decryption happens on the client (CLI, browser Web Crypto API, or MCP tool).
 - **Self-destructing**: Secrets auto-delete after the configured view count or time limit.
+
+## Marketing Claims Verification
+
+Each common claim below maps directly to implementation files in this repo:
+
+- **Zero-knowledge** → Ciphertext-only persistence in storage and fragment-key URL design
+  - `store/store.go`
+  - `web/viewer.html`
+- **AES-256-GCM** → Encryption/decryption implementation
+  - `internal/crypto/crypto.go`
+- **Self-destructing / “boil away”** → View counting and expiry deletion logic
+  - `store/store.go`
+- **One binary** → Embedded web assets via `go:embed`
+  - `main.go`
+- **AI-native (MCP tools)** → MCP server command + tool handlers
+  - `cmd/mcp.go`
+  - `internal/mcptools/tools.go`
+- **No external runtime dependencies** → Pure Go stack (including SQLite driver)
+  - `go.mod`
 
 ## Limits and Gotchas
 
