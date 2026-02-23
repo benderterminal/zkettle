@@ -6,7 +6,6 @@ linters:
     - staticcheck
     - unused
     - ineffassign
-    - typecheck
   disable:
     - errcheck
   settings:
