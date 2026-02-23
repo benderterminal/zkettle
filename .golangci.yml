@@ -1,0 +1,15 @@
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - typecheck
+  disable:
+    - errcheck
+  settings:
+    staticcheck:
+      checks:
+        - "all"
+        - "-QF*"  # disable quickfix suggestions
+        - "-S1021" # disable merge-var-declaration suggestion
