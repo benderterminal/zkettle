@@ -7,7 +7,7 @@ description: |
   temporary access grants, and secure dead drops.
 allowed-tools: mcp__zkettle__create_secret mcp__zkettle__read_secret mcp__zkettle__revoke_secret mcp__zkettle__list_secrets mcp__zkettle__generate_secret
 metadata:
-  author: trevor
+  author: benderterminal
   version: "1.0.0"
 ---
 
