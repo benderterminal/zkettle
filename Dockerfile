@@ -16,4 +16,4 @@ USER zkettle
 EXPOSE 3000
 VOLUME /data
 ENTRYPOINT ["zkettle"]
-CMD ["serve", "--host", "0.0.0.0", "--data", "/data"]
+CMD ["mcp", "--host", "0.0.0.0", "--port", "3000", "--data", "/data"]

@@ -200,6 +200,15 @@ Use `--tunnel` for public shareable URLs via Cloudflare Quick Tunnel (no account
 claude mcp add -s user zkettle -- /absolute/path/to/zkettle mcp --port 3001 --tunnel
 ```
 
+**Docker (for MCP verification/indexing):**
+
+```bash
+docker build -t zkettle-mcp .
+docker run --rm -i -p 3000:3000 -v zkettle-data:/data zkettle-mcp
+```
+
+The container defaults to `zkettle mcp --host 0.0.0.0 --port 3000 --data /data`.
+
 The MCP server starts an HTTP backend on the specified port and communicates with the agent over stdio. All encryption and decryption happens locally — in the browser (Web Crypto API), CLI, or MCP server process. The zKettle HTTP server never sees plaintext.
 
 Available tools:
