@@ -14,42 +14,24 @@ import (
 	"strings"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/benderterminal/zkettle/baseurl"
+	"github.com/benderterminal/zkettle/id"
 	"github.com/benderterminal/zkettle/internal/clipboard"
 	"github.com/benderterminal/zkettle/internal/crypto"
 	"github.com/benderterminal/zkettle/internal/generate"
 	"github.com/benderterminal/zkettle/internal/limits"
-	"github.com/benderterminal/zkettle/id"
+	"github.com/benderterminal/zkettle/internal/outfile"
 	"github.com/benderterminal/zkettle/store"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// privateNetworks is parsed once at init; used by isPrivateIP.
-var privateNetworks []*net.IPNet
-
-func init() {
-	for _, cidr := range []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"127.0.0.0/8",
-		"169.254.0.0/16",
-		"::1/128",
-		"fc00::/7",
-		"fe80::/10",
-	} {
-		_, network, _ := net.ParseCIDR(cidr)
-		privateNetworks = append(privateNetworks, network)
-	}
-}
+// cgnat is the RFC 6598 shared address space (used by Tailscale and carrier NAT),
+// which net.IP.IsPrivate does not cover.
+var cgnat = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
 
 func isPrivateIP(ip net.IP) bool {
-	for _, network := range privateNetworks {
-		if network.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || cgnat.Contains(ip)
 }
 
 func validateURLScheme(rawURL string) (*url.URL, error) {
@@ -142,7 +124,7 @@ type CreateSecretInput struct {
 
 type ReadSecretInput struct {
 	URL       string `json:"url" jsonschema:"The full zKettle secret URL including the decryption key in the fragment (#). Format: https://host/s/{id}#{key}. WARNING: Reading consumes one view -- if this is the last view the secret is permanently destroyed."`
-	File      string `json:"file,omitempty" jsonschema:"Write decrypted secret to this file path (0600 permissions) instead of returning it in the response. Keeps plaintext out of the agent conversation context. Path traversal ('..') is rejected. Mutually exclusive with clipboard."`
+	File      string `json:"file,omitempty" jsonschema:"Write decrypted secret to a new file at this path (0600 permissions) instead of returning it in the response. Fails if the file already exists. Keeps plaintext out of the agent conversation context. Path traversal ('..') is rejected. Mutually exclusive with clipboard."`
 	Clipboard bool   `json:"clipboard,omitempty" jsonschema:"Copy decrypted secret to system clipboard instead of returning it in the response. The user can then paste it where needed. No auto-clear. Mutually exclusive with file."`
 }
 
@@ -227,6 +209,11 @@ func (ts *toolSet) createSecret(_ context.Context, _ *mcp.CallToolRequest, args 
 		return nil, nil, err
 	}
 
+	return ts.encryptAndStore(plaintext, views, minutes)
+}
+
+// encryptAndStore encrypts plaintext, stores it, and returns the share URL and delete token.
+func (ts *toolSet) encryptAndStore(plaintext []byte, views, minutes int) (*mcp.CallToolResult, any, error) {
 	ciphertext, iv, key, err := crypto.Encrypt(plaintext)
 	if err != nil {
 		return nil, nil, fmt.Errorf("encrypting: %w", err)
@@ -248,8 +235,12 @@ func (ts *toolSet) createSecret(_ context.Context, _ *mcp.CallToolRequest, args 
 }
 
 func (ts *toolSet) readSecret(_ context.Context, _ *mcp.CallToolRequest, args ReadSecretInput) (*mcp.CallToolResult, any, error) {
+	// Validate the output target before fetching: the fetch consumes a view.
 	if args.File != "" && args.Clipboard {
 		return nil, nil, fmt.Errorf("file and clipboard are mutually exclusive")
+	}
+	if args.Clipboard && !clipboard.Available() {
+		return nil, nil, clipboard.ErrUnavailable
 	}
 
 	u, err := validateURLScheme(args.URL)
@@ -273,6 +264,18 @@ func (ts *toolSet) readSecret(_ context.Context, _ *mcp.CallToolRequest, args Re
 	key, err := crypto.DecodeKey(keyStr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decoding key: %w", err)
+	}
+
+	var out *outfile.File
+	var outPath string
+	if args.File != "" {
+		if outPath, err = validateFilePath(args.File); err != nil {
+			return nil, nil, err
+		}
+		if out, err = outfile.Reserve(outPath); err != nil {
+			return nil, nil, err
+		}
+		defer out.Abort()
 	}
 
 	var encBytes, ivBytes []byte
@@ -328,16 +331,12 @@ func (ts *toolSet) readSecret(_ context.Context, _ *mcp.CallToolRequest, args Re
 	defer crypto.Zero(plaintext)
 	defer crypto.Zero(key)
 
-	if args.File != "" {
-		path, err := validateFilePath(args.File)
-		if err != nil {
+	if out != nil {
+		if err := out.Commit(plaintext); err != nil {
 			return nil, nil, err
 		}
-		if err := os.WriteFile(path, plaintext, 0600); err != nil {
-			return nil, nil, fmt.Errorf("writing to file: %w", err)
-		}
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Secret written to %s (0600 permissions)", path)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Secret written to %s (0600 permissions)", outPath)}},
 		}, nil, nil
 	}
 
@@ -427,24 +426,7 @@ func (ts *toolSet) generateSecret(_ context.Context, _ *mcp.CallToolRequest, arg
 		return nil, nil, err
 	}
 
-	ciphertext, iv, key, err := crypto.Encrypt([]byte(secret))
-	if err != nil {
-		return nil, nil, fmt.Errorf("encrypting: %w", err)
-	}
-
-	secretID := id.Generate()
-	deleteToken := id.Generate()
-	expiresAt := time.Now().Add(time.Duration(minutes) * time.Minute)
-
-	if err := ts.store.Create(secretID, ciphertext, iv, views, expiresAt, deleteToken); err != nil {
-		return nil, nil, fmt.Errorf("storing secret: %w", err)
-	}
-
-	secretURL := fmt.Sprintf("%s/s/%s#%s", ts.baseURL.Get(), secretID, crypto.EncodeKey(key))
-	resultText := fmt.Sprintf("url: %s\ndelete_token: %s", secretURL, deleteToken)
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: resultText}},
-	}, nil, nil
+	return ts.encryptAndStore([]byte(secret), views, minutes)
 }
 
 func RegisterTools(srv *mcp.Server, st *store.Store, baseURL *baseurl.BaseURL, opts ...Options) {

@@ -2,10 +2,13 @@ package clipboard
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 	"runtime"
 )
+
+var ErrUnavailable = errors.New("no clipboard utility found (install pbcopy, xclip, or xsel)")
 
 func command() (name string, args []string) {
 	switch runtime.GOOS {
@@ -32,7 +35,7 @@ func Available() bool {
 func Write(data []byte) error {
 	name, args := command()
 	if name == "" {
-		return fmt.Errorf("no clipboard utility found (install pbcopy, xclip, or xsel)")
+		return ErrUnavailable
 	}
 
 	cmd := exec.Command(name, args...)

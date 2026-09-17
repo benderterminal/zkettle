@@ -3,6 +3,7 @@ package mcptools
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,10 +12,10 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/benderterminal/zkettle/baseurl"
 	"github.com/benderterminal/zkettle/server"
 	"github.com/benderterminal/zkettle/store"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func callToolMayFail(t *testing.T, mcpSrv *mcp.Server, name string, args map[string]any) (*mcp.CallToolResult, error) {
@@ -390,6 +391,90 @@ func TestReadSecretToFile(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0600 {
 		t.Fatalf("expected 0600 permissions, got: %o", info.Mode().Perm())
+	}
+}
+
+func TestReadSecretToExistingFileKeepsFileAndView(t *testing.T) {
+	mcpSrv, _, _ := setupTestEnv(t)
+
+	createResult := callTool(t, mcpSrv, "create_secret", map[string]any{
+		"content": "one-view-secret",
+		"views":   1,
+	})
+	secretURL, _ := parseCreateResult(t, createResult)
+
+	existing := filepath.Join(t.TempDir(), "existing")
+	if err := os.WriteFile(existing, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := callToolMayFail(t, mcpSrv, "read_secret", map[string]any{
+		"url":  secretURL,
+		"file": existing,
+	})
+	if err == nil && !result.IsError {
+		t.Fatal("expected error writing to an existing file")
+	}
+	if data, _ := os.ReadFile(existing); string(data) != "keep me" {
+		t.Fatalf("existing file was modified: %q", data)
+	}
+
+	// The failed attempt must not have consumed the only view.
+	readResult := callTool(t, mcpSrv, "read_secret", map[string]any{"url": secretURL})
+	if text := readResult.Content[0].(*mcp.TextContent).Text; text != "one-view-secret" {
+		t.Fatalf("got %q", text)
+	}
+}
+
+func TestReadSecretConsumedLeavesNoFile(t *testing.T) {
+	mcpSrv, _, _ := setupTestEnv(t)
+
+	createResult := callTool(t, mcpSrv, "create_secret", map[string]any{
+		"content": "gone",
+		"views":   1,
+	})
+	secretURL, _ := parseCreateResult(t, createResult)
+	callTool(t, mcpSrv, "read_secret", map[string]any{"url": secretURL})
+
+	outPath := filepath.Join(t.TempDir(), "secret.txt")
+	result, err := callToolMayFail(t, mcpSrv, "read_secret", map[string]any{
+		"url":  secretURL,
+		"file": outPath,
+	})
+	if err == nil && !result.IsError {
+		t.Fatal("expected error reading a consumed secret")
+	}
+	if _, statErr := os.Stat(outPath); !os.IsNotExist(statErr) {
+		t.Fatalf("empty output file left behind: %v", statErr)
+	}
+}
+
+func TestIsPrivateIP(t *testing.T) {
+	tests := []struct {
+		ip      string
+		private bool
+	}{
+		{"127.0.0.1", true},
+		{"10.1.2.3", true},
+		{"172.16.0.1", true},
+		{"192.168.1.1", true},
+		{"169.254.169.254", true},
+		{"0.0.0.0", true},
+		{"100.64.0.1", true},
+		{"100.127.255.255", true},
+		{"::1", true},
+		{"::", true},
+		{"::ffff:127.0.0.1", true},
+		{"fc00::1", true},
+		{"fe80::1", true},
+		{"8.8.8.8", false},
+		{"100.128.0.1", false},
+		{"2606:4700:4700::1111", false},
+	}
+	for _, tt := range tests {
+		if got := isPrivateIP(net.ParseIP(tt.ip)); got != tt.private {
+			t.Errorf("isPrivateIP(%s) = %v, want %v", tt.ip, got, tt.private)
+		}
 	}
 }
 

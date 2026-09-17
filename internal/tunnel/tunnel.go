@@ -45,7 +45,7 @@ func Start(ctx context.Context, localPort int) (*Tunnel, error) {
 		return nil, fmt.Errorf("creating stderr pipe: %w", err)
 	}
 
-	cmd.Stdout = os.Stdout // let any stdout pass through
+	cmd.Stdout = os.Stderr // stdout is the JSON-RPC channel in mcp mode
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting cloudflared: %w", err)

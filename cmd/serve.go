@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/benderterminal/zkettle/baseurl"
-	"github.com/benderterminal/zkettle/server"
-	"github.com/benderterminal/zkettle/store"
 	"github.com/benderterminal/zkettle/internal/config"
 	"github.com/benderterminal/zkettle/internal/tunnel"
+	"github.com/benderterminal/zkettle/server"
+	"github.com/benderterminal/zkettle/store"
 )
 
 func RunServe(args []string, webFS embed.FS, version string) error {

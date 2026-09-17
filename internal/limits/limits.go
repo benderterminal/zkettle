@@ -6,7 +6,7 @@ const (
 	DefaultViews   = 1
 	MinViews       = 1
 	MaxViews       = 100
-	DefaultMinutes = 1440  // 24 hours
+	DefaultMinutes = 1440 // 24 hours
 	MinMinutes     = 1
 	MaxMinutes     = 43200 // 30 days
 

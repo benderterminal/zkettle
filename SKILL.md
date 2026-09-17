@@ -48,7 +48,7 @@ Decrypt a secret from a zKettle URL. **Consumes one view.**
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `url` | string | yes | Full zKettle URL including the `#key` fragment |
-| `file` | string | no | Write decrypted secret to this file path (0600 permissions) instead of returning it |
+| `file` | string | no | Write decrypted secret to a new file at this path (0600 permissions) instead of returning it. Fails if the file already exists |
 | `clipboard` | boolean | no | Copy to system clipboard instead of returning. Mutually exclusive with `file`. |
 
 Returns decrypted plaintext by default, or a confirmation message when `file` or `clipboard` is used.

@@ -134,7 +134,8 @@ func (rl *ipRateLimiter) cleanup(ctx context.Context) {
 }
 
 // clientIP extracts the client IP address from a request.
-// When trustProxy is true, X-Forwarded-For is consulted (leftmost entry).
+// When trustProxy is true, X-Forwarded-For is consulted (the entry
+// proxyDepth from the right, i.e. the one appended by the outermost trusted proxy).
 // Otherwise, RemoteAddr is used directly.
 func clientIP(r *http.Request, trustProxy bool, proxyDepth int) string {
 	if trustProxy {
