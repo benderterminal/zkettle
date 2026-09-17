@@ -1,6 +1,7 @@
 services:
   zkettle:
     build: .
+    command: ["serve", "--host", "0.0.0.0", "--data", "/data"]
     ports:
       - "3000:3000"
     volumes:

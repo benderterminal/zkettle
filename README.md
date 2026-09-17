@@ -63,10 +63,10 @@ docker compose up -d
 
 # Or build and run manually
 docker build -t zkettle .
-docker run -d -p 3000:3000 -v zkettle-data:/data zkettle
+docker run -d -p 3000:3000 -v zkettle-data:/data zkettle serve --host 0.0.0.0 --data /data
 ```
 
-The container listens on port 3000 and stores data in `/data`. Configure with environment variables (see [Configuration Reference](#configuration-reference)).
+The image's default command is the stdio MCP server (see [MCP Setup](#mcp-setup)), which exits without an attached stdin, so the web server is started with an explicit `serve`. The container listens on port 3000 and stores data in `/data`. Configure with environment variables (see [Configuration Reference](#configuration-reference)).
 
 ## Production Deployment
 
@@ -248,7 +248,7 @@ zkettle create [options]    Encrypt and store a secret (reads from stdin)
 
 zkettle read [options] <url>   Retrieve and decrypt a secret (quote the URL)
   --clipboard, -c             Copy to clipboard instead of printing to stdout
-  --file, -o <path>           Write to file (0600 permissions) instead of stdout
+  --file, -o <path>           Write to a new file (0600 permissions) instead of stdout; fails if it exists
 
 zkettle revoke [options] <id>   Delete a secret
   --server http://localhost:3000   Server URL

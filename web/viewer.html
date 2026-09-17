@@ -401,19 +401,23 @@ button.primary:disabled{
                 cachedPlaintext = plaintext;
             }
 
-            await navigator.clipboard.writeText(plaintext);
-            cachedPlaintext = null;
-            statusEl.textContent = 'Copied to clipboard.';
-            statusEl.className = 'clipboard-status active';
-            btn.textContent = 'Copied';
-        } catch (e) {
-            if (e.message && e.message.indexOf('clipboard') !== -1) {
-                statusEl.textContent = 'Clipboard access denied.';
+            // The view is already consumed here, so a clipboard failure must
+            // leave the cached plaintext available to Reveal.
+            try {
+                await navigator.clipboard.writeText(plaintext);
+                cachedPlaintext = null;
+                statusEl.textContent = 'Copied to clipboard.';
+                statusEl.className = 'clipboard-status active';
+                btn.textContent = 'Copied';
+            } catch (e) {
+                statusEl.textContent = 'Clipboard access denied. Use Reveal Secret instead.';
                 statusEl.className = 'clipboard-status';
-            } else {
-                showError('Decryption failed: ' + e.message);
-                return;
+                btn.textContent = 'Copy Without Revealing';
+                btn.disabled = false;
             }
+        } catch (e) {
+            showError('Decryption failed: ' + e.message);
+            return;
         }
 
         document.getElementById('reveal-btn').disabled = false;

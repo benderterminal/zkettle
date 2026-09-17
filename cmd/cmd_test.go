@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -266,5 +267,44 @@ func TestCLIRevokeInvalidToken(t *testing.T) {
 	err := RunRevoke([]string{"--server", ts.URL, "--token", "wrong-token-value-here-00000000", secretID})
 	if err == nil {
 		t.Fatal("expected error revoking with wrong token")
+	}
+}
+
+// A rejected output target must fail before the fetch, which consumes a view.
+func TestCLIReadBadOutputKeepsView(t *testing.T) {
+	ts := testServer(t)
+
+	var createOut string
+	pipeStdin(t, "one view only\n", func() {
+		createOut = captureStdout(t, func() {
+			if err := RunCreate([]string{"--server", ts.URL, "--quiet"}); err != nil {
+				t.Fatalf("RunCreate: %v", err)
+			}
+		})
+	})
+	secretURL := strings.TrimSpace(createOut)
+
+	existing := filepath.Join(t.TempDir(), "existing")
+	if err := os.WriteFile(existing, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunRead([]string{"-o", existing, secretURL}); err == nil {
+		t.Fatal("expected error writing to an existing file")
+	}
+	if data, _ := os.ReadFile(existing); string(data) != "keep me" {
+		t.Fatalf("existing file was modified: %q", data)
+	}
+	if err := RunRead([]string{"-c", "-o", filepath.Join(t.TempDir(), "f"), secretURL}); err == nil {
+		t.Fatal("expected error for --clipboard with --file")
+	}
+
+	outPath := filepath.Join(t.TempDir(), "secret.txt")
+	captureStderr(t, func() {
+		if err := RunRead([]string{"-o", outPath, secretURL}); err != nil {
+			t.Fatalf("RunRead after rejected attempts: %v", err)
+		}
+	})
+	if data, _ := os.ReadFile(outPath); string(data) != "one view only" {
+		t.Fatalf("got %q", data)
 	}
 }
