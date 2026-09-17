@@ -25,17 +25,17 @@ import (
 const maxBodySize = 1024 * 1024 // 1MB
 
 type Config struct {
-	BaseURL     *baseurl.BaseURL
-	TrustProxy  bool
-	ProxyDepth  int
-	CORSOrigins []string
-	ReadRPS     float64
-	ReadBurst   int
-	WriteRPS    float64
-	WriteBurst  int
+	BaseURL        *baseurl.BaseURL
+	TrustProxy     bool
+	ProxyDepth     int
+	CORSOrigins    []string
+	ReadRPS        float64
+	ReadBurst      int
+	WriteRPS       float64
+	WriteBurst     int
 	Version        string
 	AdminToken     string
-	MaxSecretSize  int  // bytes; 0 = default (512000)
+	MaxSecretSize  int // bytes; 0 = default (512000)
 	MetricsEnabled bool
 
 	// Extension points for composability.

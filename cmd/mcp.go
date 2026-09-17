@@ -14,12 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/benderterminal/zkettle/internal/config"
 	"github.com/benderterminal/zkettle/internal/mcptools"
+	"github.com/benderterminal/zkettle/internal/tunnel"
 	"github.com/benderterminal/zkettle/server"
 	"github.com/benderterminal/zkettle/store"
-	"github.com/benderterminal/zkettle/internal/tunnel"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func RunMCP(args []string, webFS embed.FS, version string) error {

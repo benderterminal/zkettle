@@ -14,15 +14,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/benderterminal/zkettle/baseurl"
+	"github.com/benderterminal/zkettle/id"
 	"github.com/benderterminal/zkettle/internal/clipboard"
 	"github.com/benderterminal/zkettle/internal/crypto"
 	"github.com/benderterminal/zkettle/internal/generate"
 	"github.com/benderterminal/zkettle/internal/limits"
 	"github.com/benderterminal/zkettle/internal/outfile"
-	"github.com/benderterminal/zkettle/id"
 	"github.com/benderterminal/zkettle/store"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // cgnat is the RFC 6598 shared address space (used by Tailscale and carrier NAT),

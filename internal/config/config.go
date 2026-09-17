@@ -13,19 +13,19 @@ import (
 
 // Config holds all resolved configuration values.
 type Config struct {
-	Port           int      `toml:"port"`
-	Host           string   `toml:"host"`
-	Data           string   `toml:"data"`
-	BaseURL        string   `toml:"base_url"`
-	CORSOrigins    []string `toml:"cors_origins"`
-	TrustProxy     bool     `toml:"trust_proxy"`
-	Tunnel         bool     `toml:"tunnel"`
-	LogFormat      string   `toml:"log_format"` // "json" or "text" (default: "text")
-	TLSCert        string   `toml:"tls_cert"`
-	TLSKey         string   `toml:"tls_key"`
-	AdminToken     string   `toml:"admin_token"`
-	MaxSecretSize  int      `toml:"max_secret_size"` // bytes; 0 = default (512000)
-	Metrics        bool     `toml:"metrics"`
+	Port          int      `toml:"port"`
+	Host          string   `toml:"host"`
+	Data          string   `toml:"data"`
+	BaseURL       string   `toml:"base_url"`
+	CORSOrigins   []string `toml:"cors_origins"`
+	TrustProxy    bool     `toml:"trust_proxy"`
+	Tunnel        bool     `toml:"tunnel"`
+	LogFormat     string   `toml:"log_format"` // "json" or "text" (default: "text")
+	TLSCert       string   `toml:"tls_cert"`
+	TLSKey        string   `toml:"tls_key"`
+	AdminToken    string   `toml:"admin_token"`
+	MaxSecretSize int      `toml:"max_secret_size"` // bytes; 0 = default (512000)
+	Metrics       bool     `toml:"metrics"`
 }
 
 // Defaults returns a Config with default values.

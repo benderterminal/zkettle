@@ -268,7 +268,7 @@ func TestGetMalformedIDReturns400(t *testing.T) {
 	malformed := []string{
 		"abc",                                // too short
 		"xyz-not-hex-chars-here-padding1234", // non-hex chars, correct length
-		"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",  // non-hex chars, correct length
+		"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",   // non-hex chars, correct length
 	}
 	for _, id := range malformed {
 		req := httptest.NewRequest("GET", "/api/secrets/"+id, nil)
@@ -285,7 +285,7 @@ func TestDeleteMalformedIDReturns400(t *testing.T) {
 	malformed := []string{
 		"abc",                                // too short
 		"xyz-not-hex-chars-here-padding1234", // non-hex chars, correct length
-		"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",  // non-hex chars, correct length
+		"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",   // non-hex chars, correct length
 	}
 	for _, id := range malformed {
 		req := httptest.NewRequest("DELETE", "/api/secrets/"+id, nil)

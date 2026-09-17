@@ -10,10 +10,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/benderterminal/zkettle/id"
 	"github.com/benderterminal/zkettle/internal/clipboard"
 	"github.com/benderterminal/zkettle/internal/crypto"
 	"github.com/benderterminal/zkettle/internal/outfile"
-	"github.com/benderterminal/zkettle/id"
 )
 
 func RunRead(args []string) error {

@@ -1,9 +1,9 @@
 package mcptools
 
 import (
-	"net"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,10 +12,10 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/benderterminal/zkettle/baseurl"
 	"github.com/benderterminal/zkettle/server"
 	"github.com/benderterminal/zkettle/store"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func callToolMayFail(t *testing.T, mcpSrv *mcp.Server, name string, args map[string]any) (*mcp.CallToolResult, error) {

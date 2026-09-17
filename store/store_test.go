@@ -415,4 +415,3 @@ func TestDeleteMissingSecret(t *testing.T) {
 		t.Fatalf("Delete nonexistent: got %v, want ErrNotFound", err)
 	}
 }
-
